@@ -1,8 +1,9 @@
 from dataclasses import dataclass
 
+import httpx
 from fastapi import Header, HTTPException, status
 
-from .supabase_client import create_anon_client
+from .config import get_settings
 
 
 @dataclass(frozen=True)
@@ -19,18 +20,22 @@ async def get_current_user(authorization: str | None = Header(default=None)) -> 
         )
 
     token = authorization.removeprefix("Bearer ").strip()
-    try:
-        response = create_anon_client().auth.get_user(token)
-    except Exception as exc:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid authentication token",
-        ) from exc
+    settings = get_settings()
 
-    user = response.user
-    if user is None:
+    async with httpx.AsyncClient(timeout=10) as client:
+        response = await client.get(
+            f"{settings.supabase_url.rstrip('/')}/auth/v1/user",
+            headers={
+                "apikey": settings.supabase_anon_key,
+                "Authorization": f"Bearer {token}",
+            },
+        )
+
+    if response.status_code != 200:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid authentication token",
         )
-    return CurrentUser(id=str(user.id), email=user.email)
+
+    user = response.json()
+    return CurrentUser(id=str(user["id"]), email=user.get("email"))
