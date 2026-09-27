@@ -10,6 +10,11 @@ class Settings(BaseSettings):
     supabase_service_role_key: str | None = None
     openai_api_key: str | None = None
     openai_model: str = "gpt-5.6-mini"
+    cors_origins: str = "http://localhost:3000,https://family-learning-os-mocha.vercel.app"
+
+    @property
+    def cors_origin_list(self) -> list[str]:
+        return [origin.strip() for origin in self.cors_origins.split(",") if origin.strip()]
 
     model_config = SettingsConfigDict(
         env_file=".env",
