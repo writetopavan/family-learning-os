@@ -28,3 +28,6 @@ steps:
 
 images:
   - gcr.io/$PROJECT_ID/family-learning-os:$COMMIT_SHA
+
+options:
+  logging: CLOUD_LOGGING_ONLY
