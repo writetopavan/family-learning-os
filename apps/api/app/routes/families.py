@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, Header, HTTPException, status
 
 from ..auth import CurrentUser, get_current_user
 from ..schemas import (
@@ -9,15 +9,9 @@ from ..schemas import (
     CreateStudentRequest,
     CreateSubjectRequest,
 )
-from ..supabase_client import create_anon_client
+from ..supabase_client import rest_request, rpc
 
 router = APIRouter(prefix="/v1", tags=["family"])
-
-
-def _client_for_user(token: str):
-    client = create_anon_client()
-    client.auth.set_session(token, "")
-    return client
 
 
 def _bearer_token(authorization: str) -> str:
@@ -27,102 +21,130 @@ def _bearer_token(authorization: str) -> str:
 @router.post("/families", status_code=status.HTTP_201_CREATED)
 async def create_family(
     payload: CreateFamilyRequest,
-    authorization: str,
+    authorization: str = Header(...),
     _: CurrentUser = Depends(get_current_user),
 ):
-    client = _client_for_user(_bearer_token(authorization))
-    result = client.rpc("create_family_with_parent", {"family_name": payload.name}).execute()
-    return {"id": result.data, "name": payload.name}
+    family_id = await rpc(
+        "create_family_with_parent",
+        _bearer_token(authorization),
+        {"family_name": payload.name},
+    )
+    return {"id": family_id, "name": payload.name}
 
 
 @router.get("/families")
 async def list_families(
-    authorization: str,
+    authorization: str = Header(...),
     _: CurrentUser = Depends(get_current_user),
 ):
-    client = _client_for_user(_bearer_token(authorization))
-    memberships = (
-        client.table("family_memberships")
-        .select("family_id, role, families(id,name)")
-        .eq("status", "active")
-        .execute()
+    data = await rest_request(
+        "GET",
+        "family_memberships",
+        _bearer_token(authorization),
+        params={
+            "select": "family_id,role,families(id,name)",
+            "status": "eq.active",
+        },
     )
-    return memberships.data
+    return data
 
 
 @router.post("/students", status_code=status.HTTP_201_CREATED)
 async def create_student(
     payload: CreateStudentRequest,
-    authorization: str,
+    authorization: str = Header(...),
     _: CurrentUser = Depends(get_current_user),
 ):
-    client = _client_for_user(_bearer_token(authorization))
-    row = payload.model_dump(mode="json")
-    result = client.table("students").insert(row).execute()
-    if not result.data:
+    data = await rest_request(
+        "POST",
+        "students",
+        _bearer_token(authorization),
+        params={"select": "*"},
+        json=payload.model_dump(mode="json"),
+    )
+    if not data:
         raise HTTPException(status_code=400, detail="Student could not be created")
-    return result.data[0]
+    return data[0]
 
 
 @router.get("/families/{family_id}/students")
 async def list_students(
     family_id: str,
-    authorization: str,
+    authorization: str = Header(...),
     _: CurrentUser = Depends(get_current_user),
 ):
-    client = _client_for_user(_bearer_token(authorization))
-    result = (
-        client.table("students")
-        .select("*")
-        .eq("family_id", family_id)
-        .eq("active", True)
-        .order("display_name")
-        .execute()
+    return await rest_request(
+        "GET",
+        "students",
+        _bearer_token(authorization),
+        params={
+            "select": "*",
+            "family_id": f"eq.{family_id}",
+            "active": "eq.true",
+            "order": "display_name.asc",
+        },
     )
-    return result.data
 
 
 @router.post("/academic-years", status_code=status.HTTP_201_CREATED)
 async def create_academic_year(
     payload: CreateAcademicYearRequest,
-    authorization: str,
+    authorization: str = Header(...),
     _: CurrentUser = Depends(get_current_user),
 ):
-    client = _client_for_user(_bearer_token(authorization))
-    result = client.table("academic_years").insert(payload.model_dump(mode="json")).execute()
-    return result.data[0]
+    data = await rest_request(
+        "POST",
+        "academic_years",
+        _bearer_token(authorization),
+        params={"select": "*"},
+        json=payload.model_dump(mode="json"),
+    )
+    return data[0]
 
 
 @router.post("/subjects", status_code=status.HTTP_201_CREATED)
 async def create_subject(
     payload: CreateSubjectRequest,
-    authorization: str,
+    authorization: str = Header(...),
     _: CurrentUser = Depends(get_current_user),
 ):
-    client = _client_for_user(_bearer_token(authorization))
-    result = client.table("subjects").insert(payload.model_dump(mode="json")).execute()
-    return result.data[0]
+    data = await rest_request(
+        "POST",
+        "subjects",
+        _bearer_token(authorization),
+        params={"select": "*"},
+        json=payload.model_dump(mode="json"),
+    )
+    return data[0]
 
 
 @router.post("/books", status_code=status.HTTP_201_CREATED)
 async def create_book(
     payload: CreateBookRequest,
-    authorization: str,
+    authorization: str = Header(...),
     _: CurrentUser = Depends(get_current_user),
 ):
-    client = _client_for_user(_bearer_token(authorization))
-    result = client.table("books").insert(
-        payload.model_dump(mode="json", exclude_none=True)
-    ).execute()
-    return result.data[0]
+    data = await rest_request(
+        "POST",
+        "books",
+        _bearer_token(authorization),
+        params={"select": "*"},
+        json=payload.model_dump(mode="json", exclude_none=True),
+    )
+    return data[0]
 
 
 @router.post("/chapters", status_code=status.HTTP_201_CREATED)
 async def create_chapter(
     payload: CreateChapterRequest,
-    authorization: str,
+    authorization: str = Header(...),
     _: CurrentUser = Depends(get_current_user),
 ):
-    client = _client_for_user(_bearer_token(authorization))
-    result = client.table("chapters").insert(payload.model_dump(mode="json")).execute()
-    return result.data[0]
+    data = await rest_request(
+        "POST",
+        "chapters",
+        _bearer_token(authorization),
+        params={"select": "*"},
+        json=payload.model_dump(mode="json"),
+    )
+    return data[0]
