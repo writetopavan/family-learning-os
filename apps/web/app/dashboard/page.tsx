@@ -9,6 +9,8 @@ type Membership = {
   families: { id: string; name: string } | null;
 };
 
+const apiBaseUrl = process.env.NEXT_PUBLIC_API_BASE_URL;
+
 export default function DashboardPage() {
   const [memberships, setMemberships] = useState<Membership[]>([]);
   const [familyName, setFamilyName] = useState("");
@@ -20,51 +22,86 @@ export default function DashboardPage() {
     return data.session?.access_token ?? null;
   }
 
+  async function apiFetch(path: string, init?: RequestInit) {
+    if (!apiBaseUrl) {
+      throw new Error("NEXT_PUBLIC_API_BASE_URL is missing");
+    }
+
+    const controller = new AbortController();
+    const timeout = window.setTimeout(() => controller.abort(), 15000);
+
+    try {
+      return await fetch(`${apiBaseUrl}${path}`, {
+        ...init,
+        signal: controller.signal,
+      });
+    } finally {
+      window.clearTimeout(timeout);
+    }
+  }
+
   async function loadFamilies() {
-    const token = await getAccessToken();
-    if (!token) {
-      setStatus("Please sign in first.");
-      return;
+    try {
+      const token = await getAccessToken();
+      if (!token) {
+        setStatus("Please sign in first.");
+        return;
+      }
+
+      const response = await apiFetch("/v1/families", {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+
+      if (!response.ok) {
+        const detail = await response.text();
+        setStatus(`Could not load families (HTTP ${response.status}). ${detail}`);
+        return;
+      }
+
+      setMemberships(await response.json());
+      setStatus("");
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "Unknown network error";
+      setStatus(`API connection failed: ${message}`);
     }
-
-    const response = await fetch(
-      `${process.env.NEXT_PUBLIC_API_BASE_URL}/v1/families`,
-      { headers: { Authorization: `Bearer ${token}` } },
-    );
-
-    if (!response.ok) {
-      setStatus("Could not load families.");
-      return;
-    }
-
-    setMemberships(await response.json());
-    setStatus("");
   }
 
   async function createFamily(event: FormEvent) {
     event.preventDefault();
-    const token = await getAccessToken();
-    if (!token || !familyName.trim()) return;
 
-    const response = await fetch(
-      `${process.env.NEXT_PUBLIC_API_BASE_URL}/v1/families`,
-      {
+    try {
+      const token = await getAccessToken();
+      if (!token) {
+        setStatus("Please sign in first.");
+        return;
+      }
+      if (!familyName.trim()) return;
+
+      setStatus("Creating family...");
+
+      const response = await apiFetch("/v1/families", {
         method: "POST",
         headers: {
           Authorization: `Bearer ${token}`,
           "Content-Type": "application/json",
         },
         body: JSON.stringify({ name: familyName.trim() }),
-      },
-    );
+      });
 
-    if (!response.ok) {
-      setStatus("Could not create family.");
-      return;
+      if (!response.ok) {
+        const detail = await response.text();
+        setStatus(`Could not create family (HTTP ${response.status}). ${detail}`);
+        return;
+      }
+
+      setFamilyName("");
+      await loadFamilies();
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "Unknown network error";
+      setStatus(`API connection failed: ${message}`);
     }
-
-    setFamilyName("");
-    await loadFamilies();
   }
 
   useEffect(() => {
