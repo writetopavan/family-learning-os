@@ -1,0 +1,52 @@
+import { createSupabaseBrowserClient } from "@/lib/supabase-browser";
+
+const apiBaseUrl = process.env.NEXT_PUBLIC_API_BASE_URL;
+
+export async function getAccessToken(): Promise<string> {
+  const supabase = createSupabaseBrowserClient();
+  const { data } = await supabase.auth.getSession();
+  const token = data.session?.access_token;
+  if (!token) {
+    throw new Error("Your session has expired. Please sign in again.");
+  }
+  return token;
+}
+
+export async function apiFetch(path: string, init?: RequestInit): Promise<Response> {
+  if (!apiBaseUrl) {
+    throw new Error("NEXT_PUBLIC_API_BASE_URL is missing");
+  }
+
+  const token = await getAccessToken();
+  const controller = new AbortController();
+  const timeout = window.setTimeout(() => controller.abort(), 90000);
+
+  try {
+    return await fetch(`${apiBaseUrl}${path}`, {
+      ...init,
+      headers: {
+        Authorization: `Bearer ${token}`,
+        ...(init?.headers ?? {}),
+      },
+      signal: controller.signal,
+    });
+  } finally {
+    window.clearTimeout(timeout);
+  }
+}
+
+export async function apiJson<T>(path: string, init?: RequestInit): Promise<T> {
+  const response = await apiFetch(path, init);
+  if (!response.ok) {
+    let message = `HTTP ${response.status}`;
+    try {
+      const body = await response.json();
+      message = body.detail || JSON.stringify(body);
+    } catch {
+      const text = await response.text();
+      if (text) message = text;
+    }
+    throw new Error(message);
+  }
+  return response.json() as Promise<T>;
+}
