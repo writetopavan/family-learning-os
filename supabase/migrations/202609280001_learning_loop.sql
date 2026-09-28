@@ -130,7 +130,7 @@ create index idx_learning_materials_subject on public.learning_materials(subject
 create index idx_chat_messages_student on public.chat_messages(student_id, created_at desc);
 create index idx_assessments_student on public.assessments(student_id, created_at desc);
 create index idx_assessment_questions_assessment on public.assessment_questions(assessment_id, sequence);
-create index idx_assessment_attempts_assessment on public.assessment_attempts(assessment_id, created_at desc);
+create index idx_assessment_attempts_assessment on public.assessment_attempts(assessment_id, started_at desc);
 create index idx_assessment_answers_attempt on public.assessment_answers(attempt_id);
 create index idx_ai_usage_family on public.ai_usage_events(family_id, created_at desc);
 
