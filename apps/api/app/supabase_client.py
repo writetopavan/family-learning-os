@@ -26,7 +26,10 @@ async def rest_request(
         response = await client.request(
             method,
             url,
-            headers=_headers(access_token),
+            headers=_headers(
+                access_token,
+                prefer="return=representation" if method.upper() in {"POST", "PATCH"} else None,
+            ),
             params=params,
             json=json,
         )
