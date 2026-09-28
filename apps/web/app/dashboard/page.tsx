@@ -1,231 +1,182 @@
 "use client";
 
 import { FormEvent, useEffect, useMemo, useState } from "react";
+import MaterialsPanel from "@/components/MaterialsPanel";
+import SetupPanel from "@/components/SetupPanel";
+import TestsPanel from "@/components/TestsPanel";
+import TutorPanel from "@/components/TutorPanel";
+import { apiJson } from "@/lib/api";
 import { createSupabaseBrowserClient } from "@/lib/supabase-browser";
+import type {
+  AcademicYear,
+  Book,
+  Chapter,
+  Material,
+  Membership,
+  Student,
+  Subject,
+} from "@/lib/types";
 
-type Membership = {
-  family_id: string;
-  role: "parent" | "child";
-  families: { id: string; name: string } | null;
-};
+type Tab = "home" | "tutor" | "materials" | "tests" | "setup";
 
-type Student = {
-  id: string;
-  family_id: string;
-  display_name: string;
-  date_of_birth: string | null;
-};
-
-type AcademicYear = {
-  id: string;
-  family_id: string;
-  student_id: string;
-  label: string;
-  start_date: string;
-  end_date: string;
-  grade_level: number;
-};
-
-const apiBaseUrl = process.env.NEXT_PUBLIC_API_BASE_URL;
+const NAV: Array<{ id: Tab; label: string; icon: string }> = [
+  { id: "home", label: "Overview", icon: "⌂" },
+  { id: "tutor", label: "AI Tutor", icon: "✦" },
+  { id: "materials", label: "Library", icon: "▤" },
+  { id: "tests", label: "Tests", icon: "✓" },
+  { id: "setup", label: "Setup", icon: "⚙" },
+];
 
 export default function DashboardPage() {
+  const [tab, setTab] = useState<Tab>("home");
   const [memberships, setMemberships] = useState<Membership[]>([]);
-  const [selectedFamilyId, setSelectedFamilyId] = useState("");
+  const [familyId, setFamilyId] = useState("");
   const [students, setStudents] = useState<Student[]>([]);
-  const [selectedStudentId, setSelectedStudentId] = useState("");
+  const [studentId, setStudentId] = useState("");
   const [academicYears, setAcademicYears] = useState<AcademicYear[]>([]);
-
-  const [familyName, setFamilyName] = useState("");
-  const [studentName, setStudentName] = useState("");
-  const [studentDob, setStudentDob] = useState("");
-  const [yearLabel, setYearLabel] = useState("2026-27");
-  const [gradeLevel, setGradeLevel] = useState("4");
-  const [startDate, setStartDate] = useState("2026-04-01");
-  const [endDate, setEndDate] = useState("2027-03-31");
-  const [status, setStatus] = useState("Loading...");
-
-  const selectedFamily = useMemo(
-    () => memberships.find((item) => item.family_id === selectedFamilyId),
-    [memberships, selectedFamilyId],
-  );
+  const [academicYearId, setAcademicYearId] = useState("");
+  const [subjects, setSubjects] = useState<Subject[]>([]);
+  const [subjectId, setSubjectId] = useState("");
+  const [books, setBooks] = useState<Book[]>([]);
+  const [bookId, setBookId] = useState("");
+  const [chapters, setChapters] = useState<Chapter[]>([]);
+  const [chapterId, setChapterId] = useState("");
+  const [materials, setMaterials] = useState<Material[]>([]);
+  const [status, setStatus] = useState("Loading your learning workspace…");
+  const [newFamilyName, setNewFamilyName] = useState("");
 
   const selectedStudent = useMemo(
-    () => students.find((item) => item.id === selectedStudentId),
-    [students, selectedStudentId],
+    () => students.find((item) => item.id === studentId) || null,
+    [students, studentId],
   );
-
-  async function getAccessToken() {
-    const supabase = createSupabaseBrowserClient();
-    const { data } = await supabase.auth.getSession();
-    return data.session?.access_token ?? null;
-  }
-
-  async function apiFetch(path: string, init?: RequestInit) {
-    if (!apiBaseUrl) {
-      throw new Error("NEXT_PUBLIC_API_BASE_URL is missing");
-    }
-
-    const token = await getAccessToken();
-    if (!token) {
-      throw new Error("Please sign in first.");
-    }
-
-    const controller = new AbortController();
-    const timeout = window.setTimeout(() => controller.abort(), 15000);
-
-    try {
-      return await fetch(`${apiBaseUrl}${path}`, {
-        ...init,
-        headers: {
-          Authorization: `Bearer ${token}`,
-          ...(init?.headers ?? {}),
-        },
-        signal: controller.signal,
-      });
-    } finally {
-      window.clearTimeout(timeout);
-    }
-  }
-
-  async function readJson<T>(path: string): Promise<T> {
-    const response = await apiFetch(path);
-    if (!response.ok) {
-      const detail = await response.text();
-      throw new Error(`HTTP ${response.status}: ${detail}`);
-    }
-    return response.json();
-  }
+  const selectedYear = useMemo(
+    () => academicYears.find((item) => item.id === academicYearId) || null,
+    [academicYears, academicYearId],
+  );
+  const selectedSubject = useMemo(
+    () => subjects.find((item) => item.id === subjectId) || null,
+    [subjects, subjectId],
+  );
+  const selectedChapter = useMemo(
+    () => chapters.find((item) => item.id === chapterId) || null,
+    [chapters, chapterId],
+  );
 
   async function loadFamilies() {
     try {
-      const data = await readJson<Membership[]>("/v1/families");
+      const data = await apiJson<Membership[]>("/v1/families");
       setMemberships(data);
-      setSelectedFamilyId((current) => current || data[0]?.family_id || "");
-      setStatus("");
-    } catch (error) {
-      setStatus(error instanceof Error ? error.message : "Could not load families.");
-    }
-  }
-
-  async function loadStudents(familyId: string) {
-    if (!familyId) {
-      setStudents([]);
-      setSelectedStudentId("");
-      return;
-    }
-
-    try {
-      setStatus("Loading students...");
-      const data = await readJson<Student[]>(`/v1/families/${familyId}/students`);
-      setStudents(data);
-      setSelectedStudentId((current) =>
-        data.some((student) => student.id === current) ? current : data[0]?.id || "",
+      setFamilyId((current) =>
+        data.some((item) => item.family_id === current)
+          ? current
+          : data[0]?.family_id || "",
       );
       setStatus("");
-    } catch (error) {
-      setStatus(error instanceof Error ? error.message : "Could not load students.");
+    } catch (err) {
+      setStatus(err instanceof Error ? err.message : "Could not load families.");
     }
   }
 
-  async function loadAcademicYears(studentId: string) {
-    if (!studentId) {
-      setAcademicYears([]);
+  async function loadStudents(targetFamilyId = familyId) {
+    if (!targetFamilyId) {
+      setStudents([]);
+      setStudentId("");
       return;
     }
-
     try {
-      setStatus("Loading academic setup...");
-      const data = await readJson<AcademicYear[]>(
-        `/v1/students/${studentId}/academic-years`,
+      const data = await apiJson<Student[]>(`/v1/families/${targetFamilyId}/students`);
+      setStudents(data);
+      setStudentId((current) =>
+        data.some((item) => item.id === current) ? current : data[0]?.id || "",
+      );
+    } catch (err) {
+      setStatus(err instanceof Error ? err.message : "Could not load children.");
+    }
+  }
+
+  async function loadAcademicYears(targetStudentId = studentId) {
+    if (!targetStudentId) {
+      setAcademicYears([]);
+      setAcademicYearId("");
+      return;
+    }
+    try {
+      const data = await apiJson<AcademicYear[]>(
+        `/v1/students/${targetStudentId}/academic-years`,
       );
       setAcademicYears(data);
-      setStatus("");
-    } catch (error) {
-      setStatus(error instanceof Error ? error.message : "Could not load academic years.");
+      setAcademicYearId((current) =>
+        data.some((item) => item.id === current) ? current : data[0]?.id || "",
+      );
+    } catch (err) {
+      setStatus(err instanceof Error ? err.message : "Could not load academic years.");
     }
   }
 
-  async function createFamily(event: FormEvent) {
-    event.preventDefault();
-    if (!familyName.trim()) return;
-
+  async function loadSubjects(targetYearId = academicYearId) {
+    if (!targetYearId) {
+      setSubjects([]);
+      setSubjectId("");
+      return;
+    }
     try {
-      setStatus("Creating family...");
-      const response = await apiFetch("/v1/families", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: familyName.trim() }),
-      });
-
-      if (!response.ok) {
-        throw new Error(`Could not create family (HTTP ${response.status}). ${await response.text()}`);
-      }
-
-      setFamilyName("");
-      await loadFamilies();
-    } catch (error) {
-      setStatus(error instanceof Error ? error.message : "Could not create family.");
+      const data = await apiJson<Subject[]>(
+        `/v1/academic-years/${targetYearId}/subjects`,
+      );
+      setSubjects(data);
+      setSubjectId((current) =>
+        data.some((item) => item.id === current) ? current : data[0]?.id || "",
+      );
+    } catch (err) {
+      setStatus(err instanceof Error ? err.message : "Could not load subjects.");
     }
   }
 
-  async function createStudent(event: FormEvent) {
-    event.preventDefault();
-    if (!selectedFamilyId || !studentName.trim()) return;
-
+  async function loadBooks(targetSubjectId = subjectId) {
+    if (!targetSubjectId) {
+      setBooks([]);
+      setBookId("");
+      return;
+    }
     try {
-      setStatus("Adding child...");
-      const response = await apiFetch("/v1/students", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          family_id: selectedFamilyId,
-          display_name: studentName.trim(),
-          date_of_birth: studentDob || null,
-        }),
-      });
-
-      if (!response.ok) {
-        throw new Error(`Could not add child (HTTP ${response.status}). ${await response.text()}`);
-      }
-
-      const created = (await response.json()) as Student;
-      setStudentName("");
-      setStudentDob("");
-      await loadStudents(selectedFamilyId);
-      setSelectedStudentId(created.id);
-    } catch (error) {
-      setStatus(error instanceof Error ? error.message : "Could not add child.");
+      const data = await apiJson<Book[]>(`/v1/subjects/${targetSubjectId}/books`);
+      setBooks(data);
+      setBookId((current) =>
+        data.some((item) => item.id === current) ? current : data[0]?.id || "",
+      );
+    } catch (err) {
+      setStatus(err instanceof Error ? err.message : "Could not load books.");
     }
   }
 
-  async function createAcademicYear(event: FormEvent) {
-    event.preventDefault();
-    if (!selectedFamilyId || !selectedStudentId) return;
-
+  async function loadChapters(targetBookId = bookId) {
+    if (!targetBookId) {
+      setChapters([]);
+      setChapterId("");
+      return;
+    }
     try {
-      setStatus("Saving academic year...");
-      const response = await apiFetch("/v1/academic-years", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          family_id: selectedFamilyId,
-          student_id: selectedStudentId,
-          label: yearLabel.trim(),
-          start_date: startDate,
-          end_date: endDate,
-          grade_level: Number(gradeLevel),
-        }),
-      });
+      const data = await apiJson<Chapter[]>(`/v1/books/${targetBookId}/chapters`);
+      setChapters(data);
+      setChapterId((current) =>
+        data.some((item) => item.id === current) ? current : data[0]?.id || "",
+      );
+    } catch (err) {
+      setStatus(err instanceof Error ? err.message : "Could not load chapters.");
+    }
+  }
 
-      if (!response.ok) {
-        throw new Error(
-          `Could not save academic year (HTTP ${response.status}). ${await response.text()}`,
-        );
-      }
-
-      await loadAcademicYears(selectedStudentId);
-    } catch (error) {
-      setStatus(error instanceof Error ? error.message : "Could not save academic year.");
+  async function loadMaterials(targetStudentId = studentId) {
+    if (!targetStudentId) {
+      setMaterials([]);
+      return;
+    }
+    try {
+      setMaterials(
+        await apiJson<Material[]>(`/v1/students/${targetStudentId}/materials`),
+      );
+    } catch (err) {
+      setStatus(err instanceof Error ? err.message : "Could not load materials.");
     }
   }
 
@@ -234,152 +185,291 @@ export default function DashboardPage() {
   }, []);
 
   useEffect(() => {
-    void loadStudents(selectedFamilyId);
-  }, [selectedFamilyId]);
+    void loadStudents(familyId);
+  }, [familyId]);
 
   useEffect(() => {
-    void loadAcademicYears(selectedStudentId);
-  }, [selectedStudentId]);
+    void Promise.all([loadAcademicYears(studentId), loadMaterials(studentId)]);
+  }, [studentId]);
+
+  useEffect(() => {
+    void loadSubjects(academicYearId);
+  }, [academicYearId]);
+
+  useEffect(() => {
+    void loadBooks(subjectId);
+  }, [subjectId]);
+
+  useEffect(() => {
+    void loadChapters(bookId);
+  }, [bookId]);
+
+  async function createFamily(event: FormEvent) {
+    event.preventDefault();
+    if (!newFamilyName.trim()) return;
+    try {
+      setStatus("Creating family…");
+      await apiJson("/v1/families", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: newFamilyName.trim() }),
+      });
+      setNewFamilyName("");
+      await loadFamilies();
+    } catch (err) {
+      setStatus(err instanceof Error ? err.message : "Could not create family.");
+    }
+  }
+
+  async function signOut() {
+    const supabase = createSupabaseBrowserClient();
+    await supabase.auth.signOut();
+    window.location.href = "/";
+  }
+
+  const readyMaterials = materials.filter((item) => item.status === "ready").length;
+  const contextLabel = [
+    selectedYear ? `Grade ${selectedYear.grade_level}` : null,
+    selectedSubject?.name,
+    selectedChapter?.title,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+
+  if (!familyId && memberships.length === 0 && !status) {
+    return (
+      <main className="onboarding-shell">
+        <div className="onboarding-card">
+          <div className="brand-lockup"><span className="brand-mark">✦</span> Family Learning OS</div>
+          <span className="eyebrow">Welcome</span>
+          <h1>Create your family workspace</h1>
+          <p>Start with one family. You can then add children, grades, subjects and learning material.</p>
+          <form onSubmit={createFamily} className="stack">
+            <input
+              className="large-input"
+              value={newFamilyName}
+              onChange={(event) => setNewFamilyName(event.target.value)}
+              placeholder="e.g. Singh Family"
+              required
+            />
+            <button className="primary-button" type="submit">Create workspace</button>
+          </form>
+        </div>
+      </main>
+    );
+  }
 
   return (
-    <main className="stack">
-      <header>
-        <h1>Family Learning OS</h1>
-        <p className="muted">Phase 1 · family and student academic setup</p>
-      </header>
+    <div className="app-shell">
+      <aside className="sidebar">
+        <div className="brand-lockup">
+          <span className="brand-mark">✦</span>
+          <div><strong>Family Learning</strong><small>OS</small></div>
+        </div>
 
-      {status && <section className="card">{status}</section>}
-
-      <section className="card stack">
-        <h2>Family</h2>
-        {memberships.length > 0 && (
-          <select
-            value={selectedFamilyId}
-            onChange={(event) => setSelectedFamilyId(event.target.value)}
-          >
-            {memberships.map((membership) => (
-              <option key={membership.family_id} value={membership.family_id}>
-                {membership.families?.name ?? membership.family_id} · {membership.role}
-              </option>
-            ))}
-          </select>
-        )}
-
-        <form onSubmit={createFamily} className="inline-form">
-          <input
-            value={familyName}
-            onChange={(event) => setFamilyName(event.target.value)}
-            placeholder="New family name"
-            aria-label="Family name"
-          />
-          <button type="submit">Create family</button>
-        </form>
-      </section>
-
-      {selectedFamily && (
-        <section className="card stack">
-          <h2>Children</h2>
-          {students.length === 0 ? (
-            <p className="muted">No children added yet.</p>
-          ) : (
-            <select
-              value={selectedStudentId}
-              onChange={(event) => setSelectedStudentId(event.target.value)}
+        <nav className="side-nav">
+          {NAV.map((item) => (
+            <button
+              key={item.id}
+              className={tab === item.id ? "active" : ""}
+              onClick={() => setTab(item.id)}
             >
-              {students.map((student) => (
-                <option key={student.id} value={student.id}>
-                  {student.display_name}
+              <span>{item.icon}</span>{item.label}
+            </button>
+          ))}
+        </nav>
+
+        <div className="sidebar-context">
+          <span className="eyebrow">Active learner</span>
+          <strong>{selectedStudent?.display_name || "Add a child"}</strong>
+          <p>{contextLabel || "Set up grade and subjects"}</p>
+        </div>
+
+        <button className="signout-button" onClick={signOut}>↪ Sign out</button>
+      </aside>
+
+      <main className="app-main">
+        <header className="topbar">
+          <div>
+            <span className="eyebrow">Learning workspace</span>
+            <h1>
+              {tab === "home" && "Good to see you"}
+              {tab === "tutor" && "AI Tutor"}
+              {tab === "materials" && "Learning Library"}
+              {tab === "tests" && "Tests & Practice"}
+              {tab === "setup" && "Academic Setup"}
+            </h1>
+          </div>
+
+          <div className="context-selectors">
+            <select value={familyId} onChange={(event) => setFamilyId(event.target.value)}>
+              {memberships.map((item) => (
+                <option key={item.family_id} value={item.family_id}>
+                  {item.families?.name || "Family"}
                 </option>
               ))}
             </select>
-          )}
-
-          <form onSubmit={createStudent} className="form-grid">
-            <label>
-              Name
-              <input
-                value={studentName}
-                onChange={(event) => setStudentName(event.target.value)}
-                placeholder="Child name"
-                required
-              />
-            </label>
-            <label>
-              Date of birth
-              <input
-                type="date"
-                value={studentDob}
-                onChange={(event) => setStudentDob(event.target.value)}
-              />
-            </label>
-            <button type="submit">Add child</button>
-          </form>
-        </section>
-      )}
-
-      {selectedStudent && (
-        <section className="card stack">
-          <div>
-            <h2>{selectedStudent.display_name} · Academic setup</h2>
-            <p className="muted">Add the current school year and grade.</p>
-          </div>
-
-          {academicYears.length > 0 && (
-            <div className="stack">
-              {academicYears.map((year) => (
-                <div key={year.id} className="row">
-                  <strong>{year.label}</strong>
-                  <span className="muted">Grade {year.grade_level}</span>
-                  <span className="muted">
-                    {year.start_date} → {year.end_date}
-                  </span>
-                </div>
+            <select value={studentId} onChange={(event) => setStudentId(event.target.value)}>
+              {students.length === 0 && <option value="">No child yet</option>}
+              {students.map((student) => (
+                <option key={student.id} value={student.id}>{student.display_name}</option>
               ))}
-            </div>
-          )}
+            </select>
+          </div>
+        </header>
 
-          <form onSubmit={createAcademicYear} className="form-grid">
-            <label>
-              Academic year
-              <input
-                value={yearLabel}
-                onChange={(event) => setYearLabel(event.target.value)}
-                placeholder="2026-27"
-                required
-              />
-            </label>
-            <label>
-              Grade
-              <select value={gradeLevel} onChange={(event) => setGradeLevel(event.target.value)}>
-                {[4, 5, 6, 7, 8, 9, 10].map((grade) => (
-                  <option key={grade} value={grade}>
-                    Grade {grade}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label>
-              Start date
-              <input
-                type="date"
-                value={startDate}
-                onChange={(event) => setStartDate(event.target.value)}
-                required
-              />
-            </label>
-            <label>
-              End date
-              <input
-                type="date"
-                value={endDate}
-                onChange={(event) => setEndDate(event.target.value)}
-                required
-              />
-            </label>
-            <button type="submit">Add academic year</button>
-          </form>
-        </section>
-      )}
-    </main>
+        {status && <div className="alert top-alert">{status}</div>}
+
+        {!selectedStudent && (
+          <section className="workspace-panel hero-empty">
+            <div className="assistant-orb large">✦</div>
+            <h2>Add your first child to begin</h2>
+            <p>The learning workspace becomes available once a student profile exists.</p>
+            <button className="primary-button" onClick={() => setTab("setup")}>Open setup</button>
+          </section>
+        )}
+
+        {selectedStudent && tab === "home" && (
+          <div className="overview-stack">
+            <section className="overview-hero">
+              <div>
+                <span className="eyebrow">Family Learning OS</span>
+                <h2>{selectedStudent.display_name}&apos;s learning, in one place.</h2>
+                <p>
+                  Ask the tutor, upload school material, create practice tests and turn every
+                  attempt into evidence of progress.
+                </p>
+                <div className="hero-actions">
+                  <button className="primary-button" onClick={() => setTab("tutor")}>Ask AI Tutor</button>
+                  <button className="ghost-button" onClick={() => setTab("materials")}>Upload material</button>
+                </div>
+              </div>
+              <div className="hero-orbit">
+                <div className="orbit-core">✦</div>
+                <span className="orbit-chip one">Learn</span>
+                <span className="orbit-chip two">Practice</span>
+                <span className="orbit-chip three">Master</span>
+              </div>
+            </section>
+
+            <section className="stat-grid">
+              <article className="stat-card">
+                <span className="stat-icon violet">▤</span>
+                <div><strong>{readyMaterials}</strong><span>AI-ready documents</span></div>
+              </article>
+              <article className="stat-card">
+                <span className="stat-icon blue">◎</span>
+                <div><strong>{subjects.length}</strong><span>subjects configured</span></div>
+              </article>
+              <article className="stat-card">
+                <span className="stat-icon green">✓</span>
+                <div><strong>{chapters.length}</strong><span>chapters in context</span></div>
+              </article>
+              <article className="stat-card">
+                <span className="stat-icon amber">↗</span>
+                <div><strong>{selectedYear ? `G${selectedYear.grade_level}` : "—"}</strong><span>current grade</span></div>
+              </article>
+            </section>
+
+            <section className="quick-grid">
+              <button className="quick-card tutor" onClick={() => setTab("tutor")}>
+                <span>✦</span>
+                <div><strong>Explain anything</strong><p>Chat against textbooks and notes.</p></div>
+                <b>›</b>
+              </button>
+              <button className="quick-card material" onClick={() => setTab("materials")}>
+                <span>↑</span>
+                <div><strong>Add learning material</strong><p>Upload a PDF, worksheet or notes.</p></div>
+                <b>›</b>
+              </button>
+              <button className="quick-card test" onClick={() => setTab("tests")}>
+                <span>✓</span>
+                <div><strong>Create a test</strong><p>Generate, submit and get marks.</p></div>
+                <b>›</b>
+              </button>
+            </section>
+
+            <section className="workspace-panel context-card">
+              <div>
+                <span className="eyebrow">Current study context</span>
+                <h3>{contextLabel || "Complete academic setup"}</h3>
+              </div>
+              <div className="context-controls">
+                {academicYears.length > 0 && (
+                  <select value={academicYearId} onChange={(e) => setAcademicYearId(e.target.value)}>
+                    {academicYears.map((year) => <option key={year.id} value={year.id}>{year.label} · Grade {year.grade_level}</option>)}
+                  </select>
+                )}
+                {subjects.length > 0 && (
+                  <select value={subjectId} onChange={(e) => setSubjectId(e.target.value)}>
+                    {subjects.map((subject) => <option key={subject.id} value={subject.id}>{subject.name}</option>)}
+                  </select>
+                )}
+                {chapters.length > 0 && (
+                  <select value={chapterId} onChange={(e) => setChapterId(e.target.value)}>
+                    {chapters.map((chapter) => <option key={chapter.id} value={chapter.id}>{chapter.sequence}. {chapter.title}</option>)}
+                  </select>
+                )}
+                <button className="text-button" onClick={() => setTab("setup")}>Edit setup →</button>
+              </div>
+            </section>
+          </div>
+        )}
+
+        {selectedStudent && tab === "tutor" && (
+          <TutorPanel
+            familyId={familyId}
+            studentId={studentId}
+            studentName={selectedStudent.display_name}
+          />
+        )}
+
+        {selectedStudent && tab === "materials" && (
+          <MaterialsPanel
+            familyId={familyId}
+            studentId={studentId}
+            academicYearId={academicYearId || undefined}
+            subjectId={subjectId || undefined}
+            chapterId={chapterId || undefined}
+            materials={materials}
+            onReload={() => loadMaterials(studentId)}
+          />
+        )}
+
+        {selectedStudent && tab === "tests" && (
+          <TestsPanel
+            familyId={familyId}
+            studentId={studentId}
+            studentName={selectedStudent.display_name}
+            academicYearId={academicYearId || undefined}
+            subjectId={subjectId || undefined}
+            chapterId={chapterId || undefined}
+          />
+        )}
+
+        {tab === "setup" && (
+          <SetupPanel
+            familyId={familyId}
+            studentId={studentId}
+            students={students}
+            academicYears={academicYears}
+            selectedAcademicYearId={academicYearId}
+            onAcademicYearChange={setAcademicYearId}
+            subjects={subjects}
+            selectedSubjectId={subjectId}
+            onSubjectChange={setSubjectId}
+            books={books}
+            selectedBookId={bookId}
+            onBookChange={setBookId}
+            chapters={chapters}
+            onStudentsChanged={() => loadStudents(familyId)}
+            onAcademicYearsChanged={() => loadAcademicYears(studentId)}
+            onSubjectsChanged={() => loadSubjects(academicYearId)}
+            onBooksChanged={() => loadBooks(subjectId)}
+            onChaptersChanged={() => loadChapters(bookId)}
+          />
+        )}
+      </main>
+    </div>
   );
 }

@@ -3,12 +3,13 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from .config import get_settings
 from .routes.families import router as family_router
+from .routes.learning import router as learning_router
 
 settings = get_settings()
 
 app = FastAPI(
     title="Family Learning OS API",
-    version="0.1.0",
+    version="0.2.0",
 )
 
 app.add_middleware(
@@ -20,6 +21,7 @@ app.add_middleware(
 )
 
 app.include_router(family_router)
+app.include_router(learning_router)
 
 
 @app.get("/health")

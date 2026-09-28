@@ -8,9 +8,14 @@ class Settings(BaseSettings):
     supabase_url: str
     supabase_anon_key: str
     supabase_service_role_key: str | None = None
+
     openai_api_key: str | None = None
-    openai_model: str = "gpt-5.6-mini"
+    openai_model: str = "gpt-6-luna"
+    openai_base_url: str = "https://api.openai.com/v1"
+    openai_reasoning_effort: str = "low"
+
     cors_origins: str = "http://localhost:3000,https://family-learning-os-mocha.vercel.app"
+    max_material_bytes: int = 100_000_000
 
     @property
     def cors_origin_list(self) -> list[str]:
