@@ -17,13 +17,13 @@ Phase 2 turns the foundation into an end-to-end learning product.
 ## OpenAI integration
 
 The API uses the OpenAI Responses API and hosted file search. The default MVP model is
-`gpt-5.6-luna` to keep usage cost low; it can be changed with `OPENAI_MODEL`.
+`gpt-6-luna` to keep usage cost low; it can be changed with `OPENAI_MODEL`.
 
 Required Cloud Run secret:
 - `OPENAI_API_KEY`
 
 Optional Cloud Run variables:
-- `OPENAI_MODEL=gpt-5.6-luna`
+- `OPENAI_MODEL=gpt-6-luna`
 - `OPENAI_REASONING_EFFORT=low`
 
 The OpenAI key must never be exposed through a `NEXT_PUBLIC_*` browser variable.
