@@ -148,3 +148,75 @@ async def create_chapter(
         json=payload.model_dump(mode="json"),
     )
     return data[0]
+
+
+@router.get("/students/{student_id}/academic-years")
+async def list_academic_years(
+    student_id: str,
+    authorization: str = Header(...),
+    _: CurrentUser = Depends(get_current_user),
+):
+    return await rest_request(
+        "GET",
+        "academic_years",
+        _bearer_token(authorization),
+        params={
+            "select": "*",
+            "student_id": f"eq.{student_id}",
+            "order": "start_date.desc",
+        },
+    )
+
+
+@router.get("/academic-years/{academic_year_id}/subjects")
+async def list_subjects(
+    academic_year_id: str,
+    authorization: str = Header(...),
+    _: CurrentUser = Depends(get_current_user),
+):
+    return await rest_request(
+        "GET",
+        "subjects",
+        _bearer_token(authorization),
+        params={
+            "select": "*",
+            "academic_year_id": f"eq.{academic_year_id}",
+            "order": "name.asc",
+        },
+    )
+
+
+@router.get("/subjects/{subject_id}/books")
+async def list_books(
+    subject_id: str,
+    authorization: str = Header(...),
+    _: CurrentUser = Depends(get_current_user),
+):
+    return await rest_request(
+        "GET",
+        "books",
+        _bearer_token(authorization),
+        params={
+            "select": "*",
+            "subject_id": f"eq.{subject_id}",
+            "order": "title.asc",
+        },
+    )
+
+
+@router.get("/books/{book_id}/chapters")
+async def list_chapters(
+    book_id: str,
+    authorization: str = Header(...),
+    _: CurrentUser = Depends(get_current_user),
+):
+    return await rest_request(
+        "GET",
+        "chapters",
+        _bearer_token(authorization),
+        params={
+            "select": "*",
+            "book_id": f"eq.{book_id}",
+            "order": "sequence.asc",
+        },
+    )
