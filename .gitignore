@@ -31,3 +31,8 @@ htmlcov/
 
 # Local Supabase
 .supabase/
+
+# Browser verification
+playwright-report/
+test-results/
+*.tsbuildinfo

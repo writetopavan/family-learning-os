@@ -65,3 +65,8 @@ Create child -> add subject/book -> upload chapter PDF -> ask contextual questio
 Phase 0: foundation.
 
 Application code starts in Phase 1 after these foundational decisions are reviewed.
+
+## Google login and child selection
+
+Parents can continue with Google or use an email link, then explicitly choose a child.
+See [Google login setup](docs/GOOGLE_LOGIN.md) for the Google Cloud and Supabase configuration needed before using Google sign-in.
