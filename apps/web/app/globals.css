@@ -808,3 +808,52 @@ label { display: grid; gap: 7px; font-size: 14px; color: #3f4a60; }
   .assessment-card { grid-template-columns: 40px 1fr auto; }
   .difficulty-chip { display: none; }
 }
+
+/* Parent sign-in and child selection */
+.google-button {
+  display: flex;
+  width: 100%;
+  min-height: 48px;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 12px 16px;
+  color: #303744;
+  background: #fff;
+  border: 1px solid #d8dfeb;
+  border-radius: 10px;
+  font-weight: 600;
+}
+.google-button:hover:not(:disabled) { background: #f7f9fc; border-color: #aab5c8; }
+button:focus-visible, a:focus-visible { outline: 3px solid #8f82ee; outline-offset: 3px; }
+.login-divider { display: flex; align-items: center; gap: 12px; margin: 22px 0; color: var(--muted); font-size: 12px; }
+.login-divider::before, .login-divider::after { content: ""; flex: 1; height: 1px; background: var(--line); }
+.child-chooser { width: min(720px, 100%); }
+.child-chooser .brand-lockup { margin-bottom: 32px; }
+.child-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 16px; margin: 26px 0; }
+.child-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  min-width: 0;
+  padding: 28px 16px;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  color: var(--ink);
+  background: var(--soft);
+  transition: border-color .15s, transform .15s;
+}
+.child-card:hover { border-color: var(--violet); transform: translateY(-2px); }
+.child-card strong { font-size: 19px; overflow-wrap: anywhere; }
+.child-card > span:last-child { font-size: 12px; color: var(--muted); }
+.child-avatar { display: grid; place-items: center; width: 70px; height: 70px; border-radius: 22px; font-size: 28px; font-weight: 700; }
+.tone-0 { color: #6557d6; background: #ebe7ff; }
+.tone-1 { color: #237555; background: #def5ea; }
+.tone-2 { color: #a46b17; background: #fff0ce; }
+.chooser-actions { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+.chooser-empty { padding: 28px 0 8px; }
+.chooser-signout { margin-top: 24px; }
+@media (max-width: 480px) {
+  .child-grid { grid-template-columns: 1fr; }
+}
