@@ -14,6 +14,8 @@ from ..openai_service import OpenAIServiceError, openai_service
 from ..supabase_client import rest_request, rpc, storage_download, storage_remove
 from .curriculum import require_parent
 
+INDEX_SLOT = asyncio.Semaphore(1)
+
 router = APIRouter(prefix="/v1/materials", tags=["documents"])
 
 
@@ -63,7 +65,7 @@ async def page_rows(material_id, token, *, pending=False, numbers=None):
     }
     if pending:
         params["origin"] = "eq.pending"
-        params["limit"] = "2"
+        params["limit"] = "1"
     if numbers is not None:
         if not numbers:
             return []
@@ -104,6 +106,15 @@ async def get_index(
 
 
 async def advance(material_id, token, user):
+    # Admit before downloading: queued documents must not retain source bytes.
+    if INDEX_SLOT.locked():
+        await row("learning_materials", material_id, token)
+        return await index_row(material_id, token)
+    async with INDEX_SLOT:
+        return await _advance(material_id, token, user)
+
+
+async def _advance(material_id, token, user):
     material = await row("learning_materials", material_id, token)
     job = await rpc("claim_document_index", token, {"target_material": str(material_id)})
     if not job:
