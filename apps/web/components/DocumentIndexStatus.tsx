@@ -16,6 +16,7 @@ export default function DocumentIndexStatus({ materialId, materialStatus, onRead
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const controller = useRef<AbortController | null>(null);
+  const skippedPages = job?.skipped_pages || [];
   useEffect(() => {
     const abort = new AbortController();
     void apiJson<DocumentIndex | null>(`/v1/materials/${materialId}/index`, { signal: abort.signal })
@@ -35,6 +36,8 @@ export default function DocumentIndexStatus({ materialId, materialStatus, onRead
   }
   return <div className="document-index" aria-label="Document page index">
     {job && <p role="status">{job.status === 'ready' ? `Page index ready · ${job.page_count} pages` : `Page indexing: ${job.completed_pages}/${job.page_count || '?'} pages · ${job.status}`}</p>}
+    {job?.status === 'ready' && <p>Text only · Images and diagrams are not read.</p>}
+    {!!skippedPages.length && <details><summary>{skippedPages.length} pages without extractable text skipped · OCR disabled</summary><p>PDF pages: {skippedPages.join(', ')}. Text from other pages remains available.</p></details>}
     {busy && <progress max={job?.page_count || 1} value={job?.completed_pages || 0} aria-label="Indexing progress" />}
     {(error || job?.error_message) && <p role="alert">{error || job?.error_message}</p>}
     <button className="text-button" disabled={busy} onClick={() => void run(job?.status === 'ready')}>

@@ -9,7 +9,7 @@ from pydantic import BaseModel
 
 from ..auth import CurrentUser, get_current_user
 from ..curriculum import row
-from ..document_index import parse_pdf
+from ..document_index import SKIPPED_PAGE_TEXT, parse_pdf
 from ..openai_service import OpenAIServiceError, openai_service
 from ..supabase_client import rest_request, rpc, storage_download, storage_remove
 from .curriculum import require_parent
@@ -53,7 +53,26 @@ async def index_row(material_id, token):
         token,
         params={"select": "*", "material_id": f"eq.{material_id}", "limit": "1"},
     )
-    return rows[0] if rows else None
+    return await index_warnings(rows[0], token) if rows else None
+
+
+async def index_warnings(job, token):
+    if not job or job.get("status") != "ready":
+        return job
+    skipped = await rest_request(
+        "GET",
+        "document_pages",
+        token,
+        params={
+            "select": "page_number",
+            "material_id": f"eq.{job['material_id']}",
+            "origin": "eq.blank",
+            "text": f"eq.{SKIPPED_PAGE_TEXT}",
+            "order": "page_number.asc",
+            "limit": "1000",
+        },
+    )
+    return {**job, "skipped_pages": [p["page_number"] for p in skipped]}
 
 
 async def page_rows(material_id, token, *, pending=False, numbers=None):
@@ -77,11 +96,12 @@ async def queue_index(material_id, token, rebuild=False):
     material = await row("learning_materials", material_id, token)
     if not material["file_name"].lower().endswith(".pdf"):
         raise HTTPException(422, "Page indexing currently accepts PDF files.")
-    return await rpc(
+    job = await rpc(
         "queue_document_index",
         token,
         {"target_material": str(material_id), "force_rebuild": rebuild},
     )
+    return await index_warnings(job, token)
 
 
 @router.post("/{material_id}/index")
@@ -126,14 +146,13 @@ async def _advance(material_id, token, user):
             pdf = await storage_download("learning-materials", material["storage_path"], token)
             payload = await asyncio.to_thread(parse_pdf, pdf)
         else:
-            # Old jobs may already be awaiting OCR. Fail clearly without rendering,
-            # downloading the source again, or calling a model.
+            # Reparse old pending jobs as text only, preserving their page numbering.
             pages = await page_rows(material_id, token, pending=True)
             if pages:
-                raise ValueError(
-                    "Scanned PDF pages are not supported. Upload a PDF with selectable text; OCR is disabled."
-                )
-            payload = {"pages": []}
+                pdf = await storage_download("learning-materials", material["storage_path"], token)
+                payload = await asyncio.to_thread(parse_pdf, pdf)
+            else:
+                payload = {"pages": []}
     except Exception as exc:
         # Avoid persisting provider bodies or credentials in a client-readable error.
         payload = {
@@ -147,7 +166,7 @@ async def _advance(material_id, token, user):
         token,
         {"target_material": str(material_id), "lease": job["lease_id"], "payload": payload},
     )
-    return result
+    return await index_warnings(result, token)
 
 
 @router.post("/{material_id}/index/advance")
