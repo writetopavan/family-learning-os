@@ -99,3 +99,25 @@ def test_ai_transport_errors_become_handled_service_errors(monkeypatch, error, m
         with pytest.raises(OpenAIServiceError, match=message) as caught:
             asyncio.run(service._json("POST", "responses", json_body={"input": "PRIVATE_BODY"}))
     assert "private" not in str(caught.value).lower()
+
+
+def test_database_denial_does_not_prompt_relogin():
+    app = FastAPI()
+    install_request_diagnostics(app)
+    app.add_middleware(CORSMiddleware, allow_origins=[ORIGIN])
+
+    @app.get("/test")
+    async def fail():
+        raise httpx.HTTPStatusError(
+            "denied",
+            request=httpx.Request(
+                "POST", "https://db.example.test/rest/v1/rpc/save_generated_assessment"
+            ),
+            response=httpx.Response(403),
+        )
+
+    response = request(app)
+    assert response.status_code == 403
+    assert "database access rule" in response.json()["detail"]
+    assert "Please sign in again" not in response.json()["detail"]
+    assert response.headers["access-control-allow-origin"] == ORIGIN

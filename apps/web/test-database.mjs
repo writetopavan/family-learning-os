@@ -97,6 +97,46 @@ const a = (
     [JSON.stringify(meta), JSON.stringify([q]), [c]],
   )
 ).rows[0].a;
+// Reproduce the old multi-chapter RLS rejection, then verify the migration.
+const c2 = (await db.query(
+  `insert into chapters(family_id,book_id,title,sequence) values($1,$2,'Metals',2) returning id`, [f,b]
+)).rows[0].id;
+const multiMeta = {...meta, chapter_id:null, title:"Multi-chapter test"};
+async function rejectLinks(ids, label, testMeta = multiMeta) {
+  const count = (await db.query(`select count(*) n from assessments`)).rows[0].n;
+  try {
+    await db.query(`select save_generated_assessment($1::jsonb,$2::jsonb,$3::uuid[])`,
+      [JSON.stringify(testMeta),JSON.stringify([q]),ids]);
+    throw Error(label + " accepted");
+  } catch(e) {
+    if (e.code !== '42501') throw e;
+  }
+  if ((await db.query(`select count(*) n from assessments`)).rows[0].n !== count)
+    throw Error(label + " left a partial assessment");
+}
+await rejectLinks([c,c2], "Old multi-chapter policy");
+await db.exec("reset role");
+await db.exec(fs.readFileSync(`${root}/supabase/migrations/20261004150000_fix_multi_chapter_assessment_policy.sql`,"utf8"));
+await db.exec("set role authenticated");
+const multi = (await db.query(`select save_generated_assessment($1::jsonb,$2::jsonb,$3::uuid[]) a`,
+  [JSON.stringify(multiMeta),JSON.stringify([q]),[c,c2]])).rows[0].a;
+if (multi.chapter_id !== null || (await db.query(`select count(*) n from assessment_chapters where assessment_id=$1`,[multi.id])).rows[0].n !== 2)
+  throw Error("Multi-chapter links not saved");
+const otherSubject=(await db.query(`insert into subjects(family_id,academic_year_id,name) values($1,$2,'Math') returning id`,[f,y])).rows[0].id;
+const otherBook=(await db.query(`insert into books(family_id,subject_id,title) values($1,$2,'Math book') returning id`,[f,otherSubject])).rows[0].id;
+const otherChapter=(await db.query(`insert into chapters(family_id,book_id,title,sequence) values($1,$2,'Algebra',1) returning id`,[f,otherBook])).rows[0].id;
+await rejectLinks([c,otherChapter],"Cross-subject chapter");
+await rejectLinks([otherChapter],"Wrong linked chapter with single-chapter shortcut",meta);
+await db.exec(`set request.jwt.claim.sub='22222222-2222-4222-8222-222222222222';`);
+const otherFamily=(await db.query(`select create_family_with_parent('Other family') id`)).rows[0].id;
+const otherStudent=(await db.query(`insert into students(family_id,display_name) values($1,'Other learner') returning id`,[otherFamily])).rows[0].id;
+const otherYear=(await db.query(`insert into academic_years(family_id,student_id,label,start_date,end_date,grade_level) values($1,$2,'2026','2026-04-01','2027-03-31',4) returning id`,[otherFamily,otherStudent])).rows[0].id;
+const otherFamilySubject=(await db.query(`insert into subjects(family_id,academic_year_id,name) values($1,$2,'Science') returning id`,[otherFamily,otherYear])).rows[0].id;
+const otherFamilyBook=(await db.query(`insert into books(family_id,subject_id,title) values($1,$2,'Other science book') returning id`,[otherFamily,otherFamilySubject])).rows[0].id;
+const otherFamilyChapter=(await db.query(`insert into chapters(family_id,book_id,title,sequence) values($1,$2,'Other chapter',1) returning id`,[otherFamily,otherFamilyBook])).rows[0].id;
+await db.exec(`set request.jwt.claim.sub='11111111-1111-4111-8111-111111111111';`);
+await rejectLinks([c,otherFamilyChapter],"Cross-family chapter");
+console.log("PASS: multi-chapter RLS regression and cross-subject/cross-family rollback");
 const qid = (
   await db.query(`select id from assessment_questions where assessment_id=$1`, [
     a.id,
@@ -163,3 +203,4 @@ await db.close();
 console.log(
   "PASS: lesson context, atomic test/result writes, rollback on failure, cross-family RLS",
 );
+
