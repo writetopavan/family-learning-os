@@ -238,3 +238,40 @@ def test_ocr_page_render_is_a_bounded_jpeg():
     image = Image.open(BytesIO(base64.b64decode(rendered.split(",", 1)[1])))
     assert image.format == "JPEG"
     assert max(image.size) <= 1200
+
+
+def test_large_pdf_skips_layout_parser(monkeypatch):
+    import pageindex.flash
+
+    monkeypatch.setattr(
+        pageindex.flash,
+        "page_index_flash",
+        lambda *a, **k: pytest.fail("Layout parser must not run for large PDFs"),
+    )
+    pdf = PdfWriter()
+    for _ in range(41):
+        pdf.add_blank_page(width=200, height=200)
+    output = BytesIO()
+    pdf.write(output)
+    result = parse_pdf(output.getvalue())
+    assert result["page_count"] == 41
+    assert not result["contents_verified"]
+    assert len(result["tree"]) == 41
+    assert all(p["origin"] == "blank" for p in result["pages"])
+
+
+def test_busy_index_does_not_download_or_claim(monkeypatch):
+    monkeypatch.setattr(documents, "row", AsyncMock(return_value={}))
+    monkeypatch.setattr(documents, "index_row", AsyncMock(return_value={"status": "queued"}))
+    claim = AsyncMock()
+    download = AsyncMock()
+    monkeypatch.setattr(documents, "rpc", claim)
+    monkeypatch.setattr(documents, "storage_download", download)
+
+    async def run():
+        async with documents.INDEX_SLOT:
+            return await documents.advance(ID, "token", USER)
+
+    assert asyncio.run(run()) == {"status": "queued"}
+    claim.assert_not_called()
+    download.assert_not_called()
