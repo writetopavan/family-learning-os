@@ -328,6 +328,7 @@ async def interpret(payload, token, user, history=None):
         "Holiday ranges are inclusive. A recurring event's end_date is the final recurrence date. Ask for missing dates for single events. "
         "For book imports read table of contents and chapter headings, preserve chapter order, extract real topics, use the attachment's material_id. "
         "If the source is unreadable or the complete table of contents cannot be established, ask for a clearer contents page instead of a partial book import. "
+        "When the user explicitly requests a book import preview and the source clearly identifies another existing subject in the selected year, propose that subject in the book and explain the mismatch for confirmation. A subject mismatch alone is not ambiguous. Never substitute a subject that is absent from the selected year. "
         "Never put a book in exams unless the user requests an exam syllabus. "
         "Progress must target exactly one chapter_id or topic_id from this student's master data. "
         "In answer describe the proposed changes; the caller appends a save acknowledgement after commit. "

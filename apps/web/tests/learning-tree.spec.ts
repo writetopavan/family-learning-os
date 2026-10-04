@@ -521,3 +521,45 @@ test("exam prep marks a topic and generates practice linked to the exam", async 
     page.getByText("Practice test saved and linked to this exam."),
   ).toBeVisible();
 });
+
+test("library shows context and confirms a detected subject before saving", async ({ page, context }) => {
+  await setup(page, context);
+  const art = { ...subject, id: "art", name: "Art" };
+  await page.route("**/v1/academic-years/year/subjects", (route) => route.fulfill({ json: [art, subject] }));
+  await page.route("**/v1/subjects/art/books", (route) => route.fulfill({ json: [] }));
+  await page.route("**/v1/students/advik/materials", (route) => route.fulfill({ json: [{
+    id: "science-pdf", title: "Class 8 Science", file_name: "science-class-8.pdf",
+    size_bytes: 33598539, status: "ready", error_message: null,
+  }] }));
+  await page.reload();
+  await page.getByRole("button", { name: "Advik Open learning workspace" }).click();
+  await expect(page.getByLabel("Study subject", { exact: true })).toHaveValue("art");
+  await page.getByRole("button", { name: "Library", exact: false }).first().click();
+  const contextPanel = page.getByRole("region", { name: "Current study context" });
+  await expect(contextPanel).toBeVisible();
+  await expect(contextPanel).toContainText("Grade 8 · Art");
+  let applied = false;
+  await page.route("**/v1/planning/interpret", (route) => {
+    expect(route.request().postDataJSON().subject_id).toBe("art");
+    return route.fulfill({ json: { academic_year_id: "year", plan: {
+      answer: "This is Science. Confirm to save under Science.",
+      books: [{ title: "Science Textbook Class VIII", subject: "Science", material_id: "science-pdf",
+        chapters: [{ title: "Crop Production and Management", topics: ["Agricultural Practices"] }] }],
+      exams: [], events: [], progress: [],
+    } } });
+  });
+  await page.route("**/v1/planning/apply", (route) => {
+    const body = route.request().postDataJSON();
+    expect(body.student_id).toBe("advik");
+    expect(body.plan.books[0].subject).toBe("Science");
+    expect(body.plan.books[0].material_id).toBe("science-pdf");
+    applied = true;
+    return route.fulfill({ json: { saved: 1 } });
+  });
+  await page.getByRole("button", { name: "Extract chapters" }).click();
+  await expect(page.getByRole("button", { name: "Confirm and save under Science" })).toBeVisible();
+  expect(applied).toBe(false);
+  await page.getByRole("button", { name: "Confirm and save under Science" }).click();
+  await expect(page.getByLabel("Study subject", { exact: true })).toHaveValue("science");
+  expect(applied).toBe(true);
+});

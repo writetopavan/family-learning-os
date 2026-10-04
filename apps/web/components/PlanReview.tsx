@@ -6,11 +6,13 @@ export default function PlanReview({
   onSave,
   onCancel,
   busy,
+  saveLabel = "Save plan",
 }: {
   plan: Plan;
   onSave: () => void;
   onCancel: () => void;
   busy: boolean;
+  saveLabel?: string;
 }) {
   const changes =
     plan.events.length +
@@ -71,7 +73,7 @@ export default function PlanReview({
           disabled={busy || !changes}
           onClick={onSave}
         >
-          Save plan
+          {saveLabel}
         </button>
         <button className="secondary-button" disabled={busy} onClick={onCancel}>
           Discard / revise
