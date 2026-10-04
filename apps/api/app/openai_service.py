@@ -35,8 +35,13 @@ class OpenAIService:
         if json_body is not None:
             headers["Content-Type"] = "application/json"
 
-        async with httpx.AsyncClient(timeout=timeout) as client:
-            response = await client.request(method, url, headers=headers, json=json_body)
+        try:
+            async with httpx.AsyncClient(timeout=timeout) as client:
+                response = await client.request(method, url, headers=headers, json=json_body)
+        except httpx.TimeoutException as exc:
+            raise OpenAIServiceError("The AI service timed out. Check saved results before retrying.") from exc
+        except httpx.RequestError as exc:
+            raise OpenAIServiceError("Could not connect to the AI service. Please try again.") from exc
 
         if response.is_error:
             detail = response.text[:1000]
@@ -216,3 +221,4 @@ class OpenAIService:
 
 
 openai_service = OpenAIService()
+

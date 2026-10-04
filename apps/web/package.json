@@ -8,6 +8,7 @@
     "start": "next start",
     "lint": "next lint",
     "test:e2e": "playwright test",
+    "test:api": "node test-api-errors.mjs",
     "test:db": "node test-database.mjs && node test-planning-database.mjs && node test-document-index-database.mjs"
   },
   "dependencies": {
@@ -30,3 +31,4 @@
     "typescript": "^5.8.2"
   }
 }
+

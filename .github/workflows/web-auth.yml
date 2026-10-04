@@ -34,6 +34,7 @@ jobs:
           cache-dependency-path: apps/web/package-lock.json
       - run: npm ci
       - run: npm run build
+      - run: npm run test:api
       - run: npm run test:db
       - uses: actions/setup-python@v5
         with:
@@ -42,3 +43,4 @@ jobs:
       - run: python -m pytest ../api/tests -q
       - run: npx playwright install --with-deps chromium
       - run: npm run test:e2e -- --workers=2
+
