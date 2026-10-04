@@ -1,18 +1,25 @@
 import { defineConfig } from "@playwright/test";
 
+const port = process.env.TEST_PORT || "3000";
+
 export default defineConfig({
   testDir: "./tests",
   fullyParallel: true,
   use: {
-    baseURL: "http://localhost:3000", headless: true,
-    launchOptions: process.env.PLAYWRIGHT_EXECUTABLE_PATH ? {
-      executablePath: process.env.PLAYWRIGHT_EXECUTABLE_PATH,
-      args: process.env.PLAYWRIGHT_CHROMIUM_ARGS ? JSON.parse(process.env.PLAYWRIGHT_CHROMIUM_ARGS) : ["--no-sandbox"],
-    } : undefined,
+    baseURL: `http://localhost:${port}`,
+    headless: true,
+    launchOptions: process.env.PLAYWRIGHT_EXECUTABLE_PATH
+      ? {
+          executablePath: process.env.PLAYWRIGHT_EXECUTABLE_PATH,
+          args: process.env.PLAYWRIGHT_CHROMIUM_ARGS
+            ? JSON.parse(process.env.PLAYWRIGHT_CHROMIUM_ARGS)
+            : ["--no-sandbox"],
+        }
+      : undefined,
   },
   webServer: {
-    command: "npm run dev -- --hostname 127.0.0.1",
-    url: "http://localhost:3000",
+    command: `npm run dev -- --hostname 127.0.0.1 --port ${port}`,
+    url: `http://localhost:${port}`,
     reuseExistingServer: !process.env.CI,
     env: {
       NEXT_PUBLIC_SUPABASE_URL: "https://auth.example.test",

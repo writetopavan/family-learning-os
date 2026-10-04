@@ -3,6 +3,8 @@ import { FormEvent, useEffect, useRef, useState } from "react";
 import { apiJson } from "@/lib/api";
 import type { ChatMessage, Thread, Assessment } from "@/lib/types";
 import Markdown from "./Markdown";
+import { uploadStudentFile } from "@/lib/planning";
+import type { Material } from "@/lib/types";
 
 type Props = {
   familyId: string;
@@ -31,6 +33,7 @@ export default function TutorPanel({
   const [mode, setMode] = useState("chat"),
     [busy, setBusy] = useState(false),
     [error, setError] = useState("");
+  const [attachments, setAttachments] = useState<Material[]>([]);
   const [savedTest, setSavedTest] = useState("");
   const bottom = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -134,10 +137,16 @@ export default function TutorPanel({
           body: JSON.stringify({
             ...payload,
             chapter_ids: chapterId ? [chapterId] : [],
-            message: text,
+            message:
+              mode === "book"
+                ? `Import the attached book, create its chapters and topics in the selected subject. ${text}`
+                : text,
+            material_ids: attachments.map((m) => m.id),
           }),
         });
+        onSaved?.();
       }
+      setAttachments([]);
       setMessage("");
       setMessages(
         await apiJson<ChatMessage[]>(
@@ -157,7 +166,8 @@ export default function TutorPanel({
           <span className="eyebrow">AI tutor</span>
           <h2>Study with {studentName}</h2>
           <p>
-            Chat freely, or create a lesson or test saved in your learning tree.
+            Ask questions, save schedules or exam syllabuses, import books, and
+            report completed chapters.
           </p>
         </div>
       </div>
@@ -170,6 +180,7 @@ export default function TutorPanel({
             disabled={busy}
             onChange={(e) => {
               setThreadId(e.target.value);
+              setAttachments([]);
               setSavedTest("");
             }}
           >
@@ -187,6 +198,7 @@ export default function TutorPanel({
           onClick={() => {
             setThreadId("");
             setMessages([]);
+            setAttachments([]);
             setSavedTest("");
           }}
         >
@@ -209,6 +221,9 @@ export default function TutorPanel({
               <div className="message-label">
                 {m.role === "assistant" ? "Tutor" : "You"}
               </div>
+              {m.material_ids && m.material_ids.length > 0 && (
+                <small>{m.material_ids.length} document attachment(s)</small>
+              )}
               <Markdown>{m.content}</Markdown>
             </div>
           </div>
@@ -236,15 +251,70 @@ export default function TutorPanel({
       <form onSubmit={send}>
         <div className="thread-controls">
           <label>
+            Attach a document
+            <input
+              aria-label="Chat attachment"
+              type="file"
+              accept=".pdf,.txt,.md,.docx,.pptx"
+              disabled={
+                busy ||
+                attachments.length >= 5 ||
+                mode === "lesson" ||
+                mode === "test"
+              }
+              onChange={(event) => {
+                const file = event.target.files?.[0];
+                event.target.value = "";
+                if (!file) return;
+                setBusy(true);
+                setError("");
+                uploadStudentFile(file, {
+                  familyId,
+                  studentId,
+                  academicYearId,
+                  subjectId,
+                  chapterId,
+                })
+                  .then((material) =>
+                    setAttachments((current) => [...current, material]),
+                  )
+                  .catch((e) => setError(e.message))
+                  .finally(() => setBusy(false));
+              }}
+            />
+          </label>
+          {attachments.map((a) => (
+            <span className="attachment-chip" key={a.id}>
+              {a.file_name} · {a.status}
+              <button
+                type="button"
+                aria-label={`Remove ${a.file_name}`}
+                disabled={busy}
+                onClick={() =>
+                  setAttachments((v) => v.filter((m) => m.id !== a.id))
+                }
+              >
+                ×
+              </button>
+            </span>
+          ))}
+        </div>
+        <div className="thread-controls">
+          <label>
             Content type
             <select
               value={mode}
-              onChange={(e) => setMode(e.target.value)}
+              onChange={(e) => {
+                setMode(e.target.value);
+                if (e.target.value === "lesson" || e.target.value === "test")
+                  setAttachments([]);
+              }}
               disabled={busy}
             >
               <option value="chat">General chat</option>
               <option value="lesson">Save a lesson / topic</option>
               <option value="test">Generate a test</option>
+              <option value="book">Import a textbook</option>
             </select>
           </label>
           {mode !== "chat" && (
@@ -272,10 +342,13 @@ export default function TutorPanel({
           <button
             className="primary-button"
             disabled={
-              busy || !message.trim() || (mode !== "chat" && !subjectId)
+              busy ||
+              !message.trim() ||
+              (mode !== "chat" && !subjectId) ||
+              (mode === "book" && !attachments.length)
             }
           >
-            {mode === "chat"
+            {mode === "chat" || mode === "book"
               ? "Send"
               : mode === "lesson"
                 ? "Generate lesson"

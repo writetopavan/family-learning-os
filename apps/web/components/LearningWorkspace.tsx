@@ -19,7 +19,9 @@ import type {
   Subject,
 } from "@/lib/types";
 
-type Tab = "tree" | "home" | "tutor" | "materials" | "tests" | "setup";
+const PlanningPanel = dynamic(() => import("./PlanningPanel"));
+
+type Tab = "schedule" | "prep" | "tree" | "home" | "tutor" | "materials" | "tests" | "setup";
 
 const NAV: Array<{ id: Tab; label: string; icon: string }> = [
   { id: "home", label: "Overview", icon: "⌂" },
@@ -27,6 +29,8 @@ const NAV: Array<{ id: Tab; label: string; icon: string }> = [
   { id: "tutor", label: "AI Tutor", icon: "✦" },
   { id: "materials", label: "Library", icon: "▤" },
   { id: "tests", label: "Tests", icon: "✓" },
+  { id: "schedule", label: "Schedule", icon: "◷" },
+  { id: "prep", label: "Exam prep", icon: "◎" },
   { id: "setup", label: "Setup", icon: "⚙" },
 ];
 
@@ -237,6 +241,8 @@ export default function LearningWorkspace({
               {tab === "materials" && "Learning Library"}
               {tab === "tests" && "Tests & Practice"}
               {tab === "setup" && "Academic Setup"}
+              {tab === "schedule" && "Student Schedule"}
+              {tab === "prep" && "Exam Preparation"}
             </h1>
           </div>
 
@@ -391,6 +397,8 @@ export default function LearningWorkspace({
             chapterId={chapterId || undefined}
           />
         )}
+
+        {selectedStudent && (tab === "schedule" || tab === "prep") && <PlanningPanel key={`${studentId}-${tab}`} familyId={familyId} studentId={studentId} studentName={selectedStudent.display_name} view={tab}/>}
 
         {tab === "setup" && (
           <SetupPanel

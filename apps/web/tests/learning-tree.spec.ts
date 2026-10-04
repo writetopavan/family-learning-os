@@ -386,3 +386,138 @@ test("student deletion requires name confirmation and reloads child selection", 
     page.getByRole("button", { name: "Advik Open learning workspace" }),
   ).toHaveCount(0);
 });
+
+test("schedule preview saves a daily routine and shows its selected day", async ({
+  page,
+  context,
+}) => {
+  await setup(page, context);
+  const planning = {
+    years: [year],
+    subjects: [subject],
+    books: [book],
+    chapters: [chapter],
+    topics: [],
+    lessons: [],
+    assessments: [],
+    attempts: [],
+    student_exams: [],
+    exam_papers: [],
+    exam_syllabus: [],
+    student_schedules: [] as unknown[],
+  };
+  await page.route("**/v1/students/advik/planning", (route) =>
+    route.fulfill({ json: planning }),
+  );
+  await page
+    .getByRole("button", { name: "Schedule", exact: false })
+    .first()
+    .click();
+  await page.getByLabel("Schedule date").fill("2026-10-10");
+  await page.getByLabel("Activity", { exact: true }).fill("Evening study");
+  await page.getByRole("button", { name: "Preview event" }).click();
+  await expect(
+    page.getByRole("region", { name: "Plan preview" }),
+  ).toBeVisible();
+  const request = page.waitForRequest((r) =>
+    r.url().endsWith("/v1/planning/apply"),
+  );
+  await page.route("**/v1/planning/apply", (route) => {
+    const body = route.request().postDataJSON();
+    planning.student_schedules = [
+      { ...body.plan.events[0], id: "event", paper_id: null },
+    ];
+    return route.fulfill({ json: { saved: 1 } });
+  });
+  await page.getByRole("button", { name: "Save plan" }).click();
+  const body = (await request).postDataJSON();
+  expect(body.student_id).toBe("advik");
+  expect(body.plan.events[0].recurrence).toBe("daily");
+  expect(body.plan.events[0].start_date).toBe("2026-10-10");
+  await expect(page.getByText("Plan saved.", { exact: true })).toBeVisible();
+  await expect(page.locator(".schedule-row").first()).toContainText(
+    "Evening study",
+  );
+});
+
+test("exam prep marks a topic and generates practice linked to the exam", async ({
+  page,
+  context,
+}) => {
+  await setup(page, context);
+  const planning = {
+    years: [year],
+    subjects: [subject],
+    books: [book],
+    chapters: [chapter],
+    topics: [
+      {
+        id: "photosynthesis",
+        chapter_id: "plants",
+        title: "Photosynthesis",
+        sequence: 1,
+        completed_at: null as string | null,
+      },
+    ],
+    lessons: [],
+    assessments: [],
+    attempts: [],
+    student_exams: [
+      { id: "midterm", title: "Midterm", academic_year_id: "year" },
+    ],
+    exam_papers: [
+      {
+        id: "science-paper",
+        exam_id: "midterm",
+        subject_id: "science",
+        exam_date: "2026-10-20",
+        start_time: "09:00",
+      },
+    ],
+    exam_syllabus: [
+      {
+        id: "syllabus",
+        paper_id: "science-paper",
+        chapter_id: "plants",
+        topic_id: "photosynthesis",
+      },
+    ],
+    student_schedules: [],
+  };
+  await page.route("**/v1/students/advik/planning", (route) =>
+    route.fulfill({ json: planning }),
+  );
+  await page.route("**/v1/planning/apply", (route) => {
+    planning.topics[0].completed_at = "2026-10-04T12:00:00Z";
+    return route.fulfill({ json: { saved: 1 } });
+  });
+  await page
+    .getByRole("button", { name: "Exam prep", exact: false })
+    .first()
+    .click();
+  await expect(
+    page.getByText("Plants / Photosynthesis", { exact: true }),
+  ).toBeVisible();
+  await page
+    .getByRole("button", { name: "Mark completed", exact: true })
+    .click();
+  await expect(
+    page.getByRole("button", { name: "✓ Completed — reopen" }),
+  ).toBeVisible();
+  await page.getByLabel("Plants / Photosynthesis").check();
+  const req = page.waitForRequest((r) =>
+    r.url().endsWith("/v1/assessments/generate"),
+  );
+  await page.route("**/v1/assessments/generate", (route) =>
+    route.fulfill({ json: assessment }),
+  );
+  await page.getByRole("button", { name: "Practice selected" }).click();
+  const body = (await req).postDataJSON();
+  expect(body.exam_paper_id).toBe("science-paper");
+  expect(body.topic_ids).toEqual(["photosynthesis"]);
+  expect(body.chapter_ids).toEqual([]);
+  expect(body.subject_id).toBe("science");
+  await expect(
+    page.getByText("Practice test saved and linked to this exam."),
+  ).toBeVisible();
+});

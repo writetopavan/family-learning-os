@@ -908,3 +908,23 @@ button:focus-visible, a:focus-visible { outline: 3px solid #8f82ee; outline-offs
 .delete-student { border: 1px solid #e8afb6; padding: 18px; border-radius: 12px; margin-top: 15px; }
 .delete-student .primary-button { background: #a8273f; }
 @media (max-width: 640px) { .onboarding-grid, .subject-draft { grid-template-columns: 1fr; } .student-row { align-items: flex-start; flex-direction: column; } }
+
+/* Student scheduling and exam preparation */
+.plan-review { margin-top:24px; padding:24px; border:1px solid #c7d2fe; border-radius:18px; background:#f7f8ff; }
+.plan-review li { margin:8px 0; }
+.plan-review .hero-actions { margin-top:18px; }
+.schedule-row {display:flex;gap:20px;align-items:center;justify-content:space-between;padding:18px 0;border-bottom:1px solid var(--border,#e5e7eb);}
+.schedule-row p,.exam-card p {color:#64748b;margin:6px 0;}
+.schedule-time { min-width:110px;color:#4338ca;font-weight:700; }
+.exam-card {padding:24px;margin:20px 0;border:1px solid #e0e7ff;border-radius:18px;background:#fafbff;}
+.exam-card progress {width:100%;height:10px;accent-color:#6d5ce7;}
+.syllabus-row {display:flex;align-items:center;gap:14px;padding:16px 0;border-bottom:1px solid #e5e7eb;}
+.syllabus-row label {display:flex;flex:1;align-items:center;gap:10px;}
+.syllabus-row input,.textbook-option input {width:auto;}
+.completion-button {border:1px solid #cbd5e1;border-radius:10px;padding:8px 12px;background:white;color:#475569;cursor:pointer;}
+.completion-button.done {background:#ecfdf5;color:#047857;border-color:#a7f3d0;}
+.attachment-chip {display:inline-flex;align-items:center;gap:8px;border-radius:10px;background:#eef2ff;padding:8px 12px;font-size:13px;}
+.attachment-chip button {border:0;background:transparent;cursor:pointer;}
+.textbook-option {display:flex;align-items:center;gap:10px;margin:16px 0;}
+.full-width {grid-column:1 / -1;}
+@media(max-width:700px){.schedule-row,.syllabus-row {flex-wrap:wrap;} .exam-card,.plan-review{padding:16px;} .syllabus-row label{flex-basis:100%;}}
