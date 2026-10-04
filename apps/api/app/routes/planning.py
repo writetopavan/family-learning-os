@@ -12,9 +12,10 @@ from fastapi import APIRouter, Depends, Header, HTTPException
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 
 from ..auth import CurrentUser, get_current_user
+from ..book_preview import book_preview
 from ..curriculum import context, row
 from ..openai_service import OpenAIServiceError, openai_service
-from ..supabase_client import rest_request, rpc
+from ..supabase_client import rest_request, rpc, storage_download
 from .curriculum import require_parent
 
 router = APIRouter(prefix="/v1", tags=["planning"])
@@ -108,6 +109,7 @@ class Plan(Model):
 
 
 class PlanningRequest(Model):
+    purpose: Literal["general", "book_preview"] = "general"
     family_id: UUID
     student_id: UUID
     academic_year_id: UUID | None = None
@@ -189,8 +191,10 @@ async def validate_plan(payload, plan, token, user):
     for book in plan.books:
         if book.material_id:
             material = await row("learning_materials", book.material_id, token)
-            if material["student_id"] != str(payload.student_id) or material["status"] != "ready":
-                raise HTTPException(400, "Book source must be an indexed document for this student")
+            if material["student_id"] != str(payload.student_id) or material["family_id"] != str(
+                payload.family_id
+            ):
+                raise HTTPException(400, "Book source must belong to this student and family")
     return year
 
 
@@ -234,11 +238,18 @@ async def interpret(payload, token, user, history=None):
         thread = await row("chat_threads", payload.thread_id, token)
         if thread["student_id"] != str(payload.student_id):
             raise HTTPException(400, "Invalid chat thread")
+    if payload.purpose == "book_preview" and len(payload.material_ids) != 1:
+        raise HTTPException(422, "Select one textbook for chapter extraction.")
     materials = []
     for mid in payload.material_ids:
         m = await row("learning_materials", mid, token)
         if m["student_id"] != str(payload.student_id) or m["family_id"] != str(payload.family_id):
             raise HTTPException(400, "Attachment belongs to another student")
+        if payload.purpose == "book_preview":
+            if not m.get("file_name", "").lower().endswith(".pdf"):
+                raise HTTPException(422, "Chapter extraction currently requires a PDF.")
+            materials.append(m)
+            continue
         if m["status"] == "processing" and m.get("openai_file_id"):
             state = await openai_service.get_vector_file(
                 vector_store_id=m["openai_vector_store_id"], file_id=m["openai_file_id"]
@@ -259,16 +270,25 @@ async def interpret(payload, token, user, history=None):
     inputs = list(history or [])
     content = [{"type": "input_text", "text": payload.message}]
     # Read the complete selected sources, rather than relying on partial search hits for a timetable or contents list.
-    if sum(m["size_bytes"] for m in materials) > 45_000_000:
+    if payload.purpose != "book_preview" and sum(m["size_bytes"] for m in materials) > 45_000_000:
         raise HTTPException(
             413, "Split attachments above 45 MB total before extracting a syllabus or book"
         )
     for m in materials:
-        content.append({"type": "input_file", "file_id": m["openai_file_id"]})
+        if payload.purpose == "book_preview":
+            pdf = await storage_download("learning-materials", m["storage_path"], token)
+            try:
+                preview = await asyncio.to_thread(book_preview, pdf)
+            except ValueError as exc:
+                raise HTTPException(422, str(exc)) from exc
+            content.append({"type": "input_text", "text": f"Attachment material_id: {m['id']}"})
+            content.append(preview)
+        else:
+            content.append({"type": "input_file", "file_id": m["openai_file_id"]})
     inputs.append({"role": "user", "content": content})
     filters = None
     vector = None
-    if materials:
+    if materials and payload.purpose != "book_preview":
         vector = materials[0]["openai_vector_store_id"]
         for m in materials:
             await openai_service._json(
@@ -336,6 +356,15 @@ async def interpret(payload, token, user, history=None):
         f"Attachments: {json.dumps([{'id': m['id'], 'title': m['title']} for m in materials])}. "
         f"Master data: {json.dumps(master, default=str)}"
     )
+    if payload.purpose == "book_preview":
+        instructions += (
+            " This is a book preview, not a request to save changes. Only populate books and answer. "
+            "The supplied source contains at most the first 20 PDF pages. Identify the book and subject "
+            "from the opening pages and extract ALL chapters from the COMPLETE table of contents. "
+            "Do not infer topics from general knowledge; leave topics empty unless listed in the source. "
+            "If contents are absent or continue beyond the supplied pages, return no books and ask "
+            "for the complete contents pages. Explain that chapter content remains available through tutor search."
+        )
     try:
         response = await openai_service.respond(
             input_items=inputs,
@@ -355,6 +384,8 @@ async def interpret(payload, token, user, history=None):
         raise HTTPException(
             503, "Could not produce a complete valid plan. " + str(exc)[:500]
         ) from exc
+    if payload.purpose == "book_preview" and (plan.events or plan.exams or plan.progress):
+        raise HTTPException(422, "Chapter extraction returned unrelated changes. Please retry.")
     # Source linking cannot be supplied by arbitrary model output.
     if any(
         b.material_id and str(b.material_id) not in {m["id"] for m in materials} for b in plan.books
@@ -377,7 +408,16 @@ async def extract_plan(
     authorization: str = Header(...),
     user: CurrentUser = Depends(get_current_user),
 ):
-    plan, _ = await interpret(payload, authorization.removeprefix("Bearer ").strip(), user)
+    try:
+        plan, _ = await interpret(payload, authorization.removeprefix("Bearer ").strip(), user)
+    except httpx.TimeoutException as exc:
+        raise HTTPException(
+            504, "Chapter extraction timed out. Retry or upload only the contents pages."
+        ) from exc
+    except (httpx.HTTPError, OpenAIServiceError) as exc:
+        raise HTTPException(
+            503, "Document service is unavailable. Please retry chapter extraction."
+        ) from exc
     return {"plan": plan, "academic_year_id": payload.academic_year_id}
 
 

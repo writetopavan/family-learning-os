@@ -529,7 +529,7 @@ test("library shows context and confirms a detected subject before saving", asyn
   await page.route("**/v1/subjects/art/books", (route) => route.fulfill({ json: [] }));
   await page.route("**/v1/students/advik/materials", (route) => route.fulfill({ json: [{
     id: "science-pdf", title: "Class 8 Science", file_name: "science-class-8.pdf",
-    size_bytes: 33598539, status: "ready", error_message: null,
+    size_bytes: 33598539, status: "processing", error_message: null,
   }] }));
   await page.reload();
   await page.getByRole("button", { name: "Advik Open learning workspace" }).click();
@@ -541,6 +541,7 @@ test("library shows context and confirms a detected subject before saving", asyn
   let applied = false;
   await page.route("**/v1/planning/interpret", (route) => {
     expect(route.request().postDataJSON().subject_id).toBe("art");
+    expect(route.request().postDataJSON().purpose).toBe("book_preview");
     return route.fulfill({ json: { academic_year_id: "year", plan: {
       answer: "This is Science. Confirm to save under Science.",
       books: [{ title: "Science Textbook Class VIII", subject: "Science", material_id: "science-pdf",
