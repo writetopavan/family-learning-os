@@ -1,9 +1,11 @@
 "use client";
 
-import { ChangeEvent, useMemo, useState } from "react";
+import { ChangeEvent, useEffect, useMemo, useRef, useState } from "react";
 import { apiJson } from "@/lib/api";
 import { createSupabaseBrowserClient } from "@/lib/supabase-browser";
 import PlanReview from "./PlanReview";
+import DocumentIndexStatus from "./DocumentIndexStatus";
+import { buildDocumentIndex } from "@/lib/document-index";
 import { postJson } from "@/lib/planning";
 import type { Plan } from "@/lib/planning";
 import type { Material, Subject } from "@/lib/types";
@@ -36,6 +38,8 @@ export default function MaterialsPanel({
   materials,
   onReload,
 }: Props) {
+  const indexController = useRef<AbortController | null>(null);
+  useEffect(() => () => indexController.current?.abort(), []);
   const [bookPlan, setBookPlan] = useState<Plan | null>(null);
   const [planYear, setPlanYear] = useState<string | null>(null);
   const [textbook, setTextbook] = useState(false);
@@ -103,8 +107,12 @@ export default function MaterialsPanel({
         }),
       });
 
+      if (file.name.toLowerCase().endsWith('.pdf')) {
+        indexController.current = new AbortController();
+        await buildDocumentIndex(material.id, job => setStatus(`Indexing source pages: ${job.completed_pages}/${job.page_count || '?'} · ${job.status}`), indexController.current.signal);
+      }
       setStatus(
-        material.status === "ready"
+        material.status === "ready" || file.name.toLowerCase().endsWith(".pdf")
           ? "Document added. It is ready for the tutor."
           : "Uploaded. Indexing is still in progress.",
       );
@@ -123,6 +131,9 @@ export default function MaterialsPanel({
     setBookPlan(null);
     setStatus("Reading the opening pages and table of contents…");
     try {
+      indexController.current = new AbortController();
+      await buildDocumentIndex(id, job => setStatus(`Indexing source pages: ${job.completed_pages}/${job.page_count || '?'} · ${job.status}`), indexController.current.signal);
+      setStatus('Reading the indexed book structure and topics…');
       const extracted = await postJson<{
         plan: Plan;
         academic_year_id: string | null;
@@ -263,6 +274,7 @@ export default function MaterialsPanel({
                   {item.file_name} · {prettyBytes(item.size_bytes)}
                 </span>
                 {item.error_message && <small>{item.error_message}</small>}
+                {item.file_name.toLowerCase().endsWith('.pdf') && <DocumentIndexStatus materialId={item.id} materialStatus={item.status} onReady={onReload} />}
               </div>
               <button
                 className="text-button"

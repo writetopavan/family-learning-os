@@ -59,6 +59,7 @@ def test_progress_requires_one_target_and_strict_schema():
 
 def test_attachment_cannot_read_sibling_document(monkeypatch):
     monkeypatch.setattr(planning, "context", AsyncMock(return_value={}))
+    monkeypatch.setattr(planning, "retrieve", AsyncMock(return_value={"text": "", "references": []}))
     monkeypatch.setattr(planning, "planning_data", AsyncMock(return_value={"years": []}))
     monkeypatch.setattr(
         planning,
@@ -78,6 +79,7 @@ def test_attachment_cannot_read_sibling_document(monkeypatch):
 
 def test_interpret_does_not_save_and_complete_sources_are_scoped(monkeypatch):
     monkeypatch.setattr(planning, "context", AsyncMock(return_value={}))
+    monkeypatch.setattr(planning, "retrieve", AsyncMock(return_value={"text": "", "references": []}))
     data = {
         k: []
         for k in [
@@ -138,6 +140,7 @@ def test_interpret_does_not_save_and_complete_sources_are_scoped(monkeypatch):
 
 def test_incomplete_extraction_never_returns_a_plan(monkeypatch):
     monkeypatch.setattr(planning, "context", AsyncMock(return_value={}))
+    monkeypatch.setattr(planning, "retrieve", AsyncMock(return_value={"text": "", "references": []}))
     data = {
         k: []
         for k in [

@@ -9,7 +9,9 @@ dependencies = [
   "pydantic-settings>=2.8,<3",
   "supabase>=2.15,<3",
   "httpx>=0.28,<1",
-  "pypdf>=5,<7"
+  "pypdf>=5,<7",
+  "pageindex==0.2.10",
+  "pillow>=11,<13"
 ]
 
 [project.optional-dependencies]
@@ -21,3 +23,6 @@ dev = [
 [tool.ruff]
 line-length = 100
 target-version = "py312"
+
+[tool.pytest.ini_options]
+pythonpath = ["."]

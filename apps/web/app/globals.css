@@ -928,3 +928,9 @@ button:focus-visible, a:focus-visible { outline: 3px solid #8f82ee; outline-offs
 .textbook-option {display:flex;align-items:center;gap:10px;margin:16px 0;}
 .full-width {grid-column:1 / -1;}
 @media(max-width:700px){.schedule-row,.syllabus-row {flex-wrap:wrap;} .exam-card,.plan-review{padding:16px;} .syllabus-row label{flex-basis:100%;}}
+
+.document-index { margin-top: 10px; font-size: 12px; max-width: 640px; }
+.document-index p { margin: 4px 0; }
+.document-index summary { cursor: pointer; }
+.document-index ul { padding-left: 18px; max-height: 300px; overflow: auto; }
+.document-index progress { width: min(100%, 260px); }

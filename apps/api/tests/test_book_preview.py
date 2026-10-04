@@ -74,11 +74,10 @@ def test_preview_does_not_wait_for_indexing(monkeypatch):
             }
         ),
     )
-    download = AsyncMock(return_value=b"pdf bytes")
-    monkeypatch.setattr(planning, "storage_download", download)
-    monkeypatch.setattr(
-        planning, "book_preview", lambda _: {"type": "input_text", "text": "Contents"}
+    preview = AsyncMock(
+        return_value=({"version": 1, "tree": []}, {"type": "input_text", "text": "Contents"})
     )
+    monkeypatch.setattr(planning, "book_tree_preview", preview)
     vector = AsyncMock(side_effect=AssertionError("Indexing must not be queried"))
     monkeypatch.setattr(planning.openai_service, "get_vector_file", vector)
     ai = AsyncMock(return_value={})
@@ -96,7 +95,7 @@ def test_preview_does_not_wait_for_indexing(monkeypatch):
     )
     asyncio.run(planning.interpret(req, "test", USER))
     vector.assert_not_called()
-    download.assert_awaited_once_with("learning-materials", "authorized/book.pdf", "test")
+    preview.assert_awaited_once_with(OTHER, "test")
     assert ai.call_args.kwargs["vector_store_id"] is None
     assert ai.call_args.kwargs["input_items"][0]["content"][-1]["text"] == "Contents"
 
