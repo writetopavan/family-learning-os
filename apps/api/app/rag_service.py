@@ -5,12 +5,70 @@ import json
 from fastapi import HTTPException
 
 from .curriculum import row
-from .document_index import flatten, select_nodes, source_context
+from .document_index import SKIPPED_PAGE_TEXT, flatten, select_nodes, source_context
 from .openai_service import OpenAIServiceError, openai_service
 from .routes.documents import index_row, page_rows
 from .supabase_client import rest_request
 
 MAX_CONTEXT = 80000
+
+
+def is_pdf(material):
+    return (
+        material.get("index_backend") == "pageindex"
+        or material.get("file_name", "").lower().endswith(".pdf")
+        or material.get("mime_type") == "application/pdf"
+        or not material.get("file_name")
+    )
+
+
+async def generation_sources(
+    student_id,
+    ctx,
+    query,
+    token,
+    user,
+    material_ids=(),
+    full_chapters=False,
+    required=False,
+):
+    grounding = await retrieve(student_id, ctx, query, token, user, material_ids, full_chapters)
+    managed = grounding.pop("managed", [])
+    vector = None
+    filters = None
+    if managed:
+        if any(
+            m.get("status") != "ready"
+            or not m.get("openai_file_id")
+            or not m.get("openai_vector_store_id")
+            for m in managed
+        ):
+            raise HTTPException(409, "A selected document is not ready. Check indexing in Library.")
+        stores = {m["openai_vector_store_id"] for m in managed}
+        if len(stores) != 1:
+            raise HTTPException(
+                409,
+                "Selected documents use different search indexes. Re-upload them for this learner.",
+            )
+        vector = stores.pop()
+        for m in managed:
+            await openai_service._json(
+                "POST",
+                f"/vector_stores/{vector}/files/{m['openai_file_id']}",
+                json_body={"attributes": {"material_id": m["id"]}},
+            )
+        filters = {
+            "type": "in",
+            "key": "material_id",
+            "value": [m["id"] for m in managed],
+        }
+        grounding["material_ids"].extend(m["id"] for m in managed)
+    if required and not grounding["text"] and not filters:
+        raise HTTPException(
+            400,
+            "Upload ready learning material for the selected subject and chapters first",
+        )
+    return {**grounding, "vector_store_id": vector, "filters": filters}
 
 
 async def materials_for_context(student_id, ctx, token):
@@ -22,14 +80,27 @@ async def materials_for_context(student_id, ctx, token):
     if ctx.get("chapter_ids"):
         chapters = [await row("chapters", cid, token) for cid in ctx["chapter_ids"]]
         books = sorted({c["book_id"] for c in chapters})
+        linked_ids = sorted(
+            {c["source_material_id"] for c in chapters if c.get("source_material_id")}
+        )
         params["or"] = (
             "(chapter_id.in.("
             + ",".join(ctx["chapter_ids"])
             + "),book_id.in.("
             + ",".join(books)
-            + "))"
+            + ")"
+            + (",id.in.(" + ",".join(linked_ids) + ")" if linked_ids else "")
+            + ")"
         )
     result = await rest_request("GET", "learning_materials", token, params=params)
+    if ctx.get("chapter_ids"):
+        result = [
+            m
+            for m in result
+            if not m.get("chapter_id")
+            or m["chapter_id"] in ctx["chapter_ids"]
+            or m["id"] in linked_ids
+        ]
     if len(result) > 20:
         raise HTTPException(422, "Select a subject or fewer books to narrow retrieval.")
     return result
@@ -37,7 +108,11 @@ async def materials_for_context(student_id, ctx, token):
 
 async def choose_nodes(tree, query):
     compact = [
-        {"node_id": n["node_id"], "title": n["title"], "pages": [n["start_index"], n["end_index"]]}
+        {
+            "node_id": n["node_id"],
+            "title": n["title"],
+            "pages": [n["start_index"], n["end_index"]],
+        }
         for n in flatten(tree)
     ]
     if len(compact) > 600:
@@ -57,7 +132,11 @@ async def choose_nodes(tree, query):
         schema={
             "type": "object",
             "properties": {
-                "node_ids": {"type": "array", "items": {"type": "string"}, "maxItems": 6}
+                "node_ids": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "maxItems": 6,
+                }
             },
             "required": ["node_ids"],
             "additionalProperties": False,
@@ -78,26 +157,47 @@ async def choose_nodes(tree, query):
 async def retrieve(student_id, ctx, query, token, user, material_ids=(), full_chapters=False):
     materials = []
     if material_ids:
-        for mid in material_ids:
+        for mid in dict.fromkeys(material_ids):
             material = await row("learning_materials", mid, token)
             if material["student_id"] != str(student_id):
                 raise HTTPException(400, "Attachment belongs to another student")
+            for key in ("academic_year_id", "subject_id"):
+                if ctx.get(key) and material.get(key) != str(ctx[key]):
+                    raise HTTPException(
+                        400, "Attachment does not match the selected learning context"
+                    )
             materials.append(material)
     else:
         materials = await materials_for_context(student_id, ctx, token)
     chapters = [await row("chapters", cid, token) for cid in ctx.get("chapter_ids", [])]
+    if not material_ids and any(
+        c.get("source_material_id") and c["source_material_id"] not in {m["id"] for m in materials}
+        for c in chapters
+    ):
+        raise HTTPException(
+            409, "A linked chapter source is unavailable. Re-link its book in Library."
+        )
     chunks = []
     references = []
     used = []
     budget = MAX_CONTEXT
+    managed = []
     for material in materials:
+        if not is_pdf(material):
+            managed.append(material)
+            continue
         index = await index_row(material["id"], token)
         if not index or index["status"] != "ready":
-            continue
+            raise HTTPException(
+                409,
+                "A selected PDF has no ready text index. Build its index in Library before generating content.",
+            )
         scoped_chapters = [
             c
             for c in chapters
-            if c["book_id"] == material.get("book_id") or c["id"] == material.get("chapter_id")
+            if c["book_id"] == material.get("book_id")
+            or c["id"] == material.get("chapter_id")
+            or c.get("source_material_id") == material["id"]
         ]
         if chapters and not scoped_chapters:
             raise HTTPException(
@@ -117,7 +217,9 @@ async def retrieve(student_id, ctx, query, token, user, material_ids=(), full_ch
                     if chapter.get("source_material_id") == material["id"]:
                         allowed_nodes.extend(
                             select_nodes(
-                                index["tree"], query, source_nodes=[chapter["source_node_id"]]
+                                index["tree"],
+                                query,
+                                source_nodes=[chapter["source_node_id"]],
                             )
                         )
                     elif chapter["id"] == material.get("chapter_id"):
@@ -135,8 +237,10 @@ async def retrieve(student_id, ctx, query, token, user, material_ids=(), full_ch
                 409,
                 "This chapter is not linked to the book index. Extract and confirm the book again.",
             )
-        if allowed_nodes and full_chapters:
-            selected = allowed_nodes
+        if (allowed_nodes and full_chapters) or (
+            material_ids and not scoped_chapters and index.get("page_count", 21) <= 20
+        ):
+            selected = allowed_nodes or index["tree"]
         else:
             # Narrow the tree BEFORE model selection; no other chapter content can leak in.
             tree = allowed_nodes or index["tree"]
@@ -159,6 +263,17 @@ async def retrieve(student_id, ctx, query, token, user, material_ids=(), full_ch
         pages = await page_rows(material["id"], token, numbers=numbers)
         if {p["page_number"] for p in pages} != numbers:
             raise HTTPException(409, "Document page index is incomplete. Rebuild the index.")
+        pages = [
+            p
+            for p in pages
+            if p.get("origin") != "blank" and p["text"].strip() and p["text"] != SKIPPED_PAGE_TEXT
+        ]
+        if not pages:
+            raise HTTPException(
+                409,
+                "The selected pages have no extractable text. Image processing is disabled.",
+            )
+        numbers = {p["page_number"] for p in pages}
         try:
             text = source_context(material, pages, numbers, budget)
         except ValueError as exc:
@@ -166,11 +281,26 @@ async def retrieve(student_id, ctx, query, token, user, material_ids=(), full_ch
         budget -= len(text)
         chunks.append(text)
         references.extend(
-            {"material_id": material["id"], "title": material["title"], "page": p["page_number"]}
+            {
+                "material_id": material["id"],
+                "title": material["title"],
+                "page": p["page_number"],
+                "index_version": index["version"],
+            }
             for p in pages
         )
         used.append(material["id"])
-    return {"text": "\n\n".join(chunks), "references": references, "material_ids": used}
+    if any(is_pdf(m) for m in materials) and not chunks:
+        raise HTTPException(
+            409,
+            "No matching source pages were retrieved. Choose a more specific question.",
+        )
+    return {
+        "text": "\n\n".join(chunks),
+        "references": references,
+        "material_ids": used,
+        "managed": managed,
+    }
 
 
 async def book_tree_preview(material_id, token):

@@ -1,9 +1,8 @@
-"""Bounded PDF input for chapter discovery; independent of search indexing."""
+"""Bounded text-only PDF opening pages; never render images or invoke OCR."""
 
-import base64
-from io import BytesIO
+import pypdfium2 as pdfium
 
-from pypdf import PdfReader, PdfWriter
+from .document_index import PDFIUM_LOCK
 
 PREVIEW_PAGES = 20
 MAX_TEXT = 80000
@@ -11,32 +10,36 @@ MAX_TEXT = 80000
 
 def book_preview(content: bytes) -> dict:
     try:
-        reader = PdfReader(BytesIO(content))
-        if reader.is_encrypted and not reader.decrypt(""):
-            raise ValueError("Upload an unlocked PDF to extract chapters.")
-        count = min(len(reader.pages), PREVIEW_PAGES)
-        if not count:
-            raise ValueError("The PDF has no pages.")
-        pages = [reader.pages[i] for i in range(count)]
-        texts = [page.extract_text() or "" for page in pages]
-        # Use text when every page has a text layer. Mixed/scanned books need vision.
-        if all(len(text.strip()) >= 30 for text in texts):
-            text = "\n\n".join(f"[PDF page {i + 1}]\n{value}" for i, value in enumerate(texts))
-            if len(text) <= MAX_TEXT:
-                return {"type": "input_text", "text": text}
-        writer = PdfWriter()
-        for page in pages:
-            writer.add_page(page)
-        output = BytesIO()
-        writer.write(output)
-        if output.tell() > 12_000_000:
-            raise ValueError("Opening pages are too large. Upload the contents pages separately.")
-        return {
-            "type": "input_file",
-            "filename": "book-opening-pages.pdf",
-            "file_data": "data:application/pdf;base64,"
-            + base64.b64encode(output.getvalue()).decode(),
-        }
+        chunks = []
+        size = 0
+        with PDFIUM_LOCK, pdfium.PdfDocument(content) as document:
+            for number in range(min(len(document), PREVIEW_PAGES)):
+                page = document[number]
+                text_page = None
+                try:
+                    text_page = page.get_textpage()
+                    if text_page.count_chars() > MAX_TEXT:
+                        raise ValueError(
+                            "Opening pages contain too much text. Upload the contents pages separately."
+                        )
+                    text = text_page.get_text_range()
+                finally:
+                    if text_page is not None:
+                        text_page.close()
+                    page.close()
+                if text.strip():
+                    chunk = f"[PDF page {number + 1}]\n{text}"
+                    size += len(chunk) + 2
+                    if size > MAX_TEXT:
+                        raise ValueError(
+                            "Opening pages contain too much text. Upload the contents pages separately."
+                        )
+                    chunks.append(chunk)
+        if not chunks:
+            raise ValueError(
+                "Opening pages have no extractable text. Image processing and OCR are disabled."
+            )
+        return {"type": "input_text", "text": "\n\n".join(chunks)}
     except ValueError:
         raise
     except Exception as exc:

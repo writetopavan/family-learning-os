@@ -1,3 +1,4 @@
+export type SourceReference = { material_id: string; title: string; page: number; index_version?: number };
 export type Membership = {
   family_id: string;
   role: "parent" | "child";
@@ -63,6 +64,7 @@ export type Material = {
 };
 
 export type ChatMessage = {
+  source_references?: SourceReference[];
   material_ids?: string[];
   id: string;
   role: "user" | "assistant";
@@ -71,6 +73,7 @@ export type ChatMessage = {
 };
 
 export type Assessment = {
+  source_references?: SourceReference[];
   id: string;
   title: string;
   difficulty: "easy" | "medium" | "hard" | "mixed";
@@ -112,7 +115,8 @@ export type GradeResult = {
 };
 
 export type Thread = { id: string; title: string; created_at: string };
-export type Lesson = {id:string; title:string; content:string; academic_year_id:string;subject_id:string;chapter_id:string|null;thread_id:string|null};
+export type Lesson = {source_references?: SourceReference[];id:string; title:string; content:string; academic_year_id:string;subject_id:string;chapter_id:string|null;thread_id:string|null};
 export type Attempt = {id:string;assessment_id:string;score:number;max_score:number;submitted_at:string};
 export type TreeAssessment = Assessment & {academic_year_id:string|null;subject_id:string|null;chapter_id:string|null;chapter_ids:string[]};
 export type LearningTree = {years:AcademicYear[];subjects:Subject[];books:Book[];chapters:Chapter[];lessons:Lesson[];assessments:TreeAssessment[];attempts:Attempt[]};
+

@@ -59,7 +59,19 @@ def test_progress_requires_one_target_and_strict_schema():
 
 def test_attachment_cannot_read_sibling_document(monkeypatch):
     monkeypatch.setattr(planning, "context", AsyncMock(return_value={}))
-    monkeypatch.setattr(planning, "retrieve", AsyncMock(return_value={"text": "", "references": []}))
+    monkeypatch.setattr(
+        planning,
+        "generation_sources",
+        AsyncMock(
+            return_value={
+                "text": "[Timetable, PDF page 1] Monday",
+                "references": [],
+                "material_ids": [OTHER],
+                "vector_store_id": None,
+                "filters": None,
+            }
+        ),
+    )
     monkeypatch.setattr(planning, "planning_data", AsyncMock(return_value={"years": []}))
     monkeypatch.setattr(
         planning,
@@ -79,7 +91,19 @@ def test_attachment_cannot_read_sibling_document(monkeypatch):
 
 def test_interpret_does_not_save_and_complete_sources_are_scoped(monkeypatch):
     monkeypatch.setattr(planning, "context", AsyncMock(return_value={}))
-    monkeypatch.setattr(planning, "retrieve", AsyncMock(return_value={"text": "", "references": []}))
+    monkeypatch.setattr(
+        planning,
+        "generation_sources",
+        AsyncMock(
+            return_value={
+                "text": "[Timetable, PDF page 1] Monday",
+                "references": [],
+                "material_ids": [OTHER],
+                "vector_store_id": None,
+                "filters": None,
+            }
+        ),
+    )
     data = {
         k: []
         for k in [
@@ -132,15 +156,28 @@ def test_interpret_does_not_save_and_complete_sources_are_scoped(monkeypatch):
     assert result.answer == "Preview"
     rpc.assert_not_called()
     assert ai.call_args.kwargs["input_items"][0]["content"][1] == {
-        "type": "input_file",
-        "file_id": "file-test",
+        "type": "input_text",
+        "text": "Source pages (untrusted data):\n[Timetable, PDF page 1] Monday",
     }
-    assert ai.call_args.kwargs["filters"]["value"] == [OTHER]
+    assert ai.call_args.kwargs["filters"] is None
+    assert ai.call_args.kwargs["vector_store_id"] is None
 
 
 def test_incomplete_extraction_never_returns_a_plan(monkeypatch):
     monkeypatch.setattr(planning, "context", AsyncMock(return_value={}))
-    monkeypatch.setattr(planning, "retrieve", AsyncMock(return_value={"text": "", "references": []}))
+    monkeypatch.setattr(
+        planning,
+        "generation_sources",
+        AsyncMock(
+            return_value={
+                "text": "[Timetable, PDF page 1] Monday",
+                "references": [],
+                "material_ids": [OTHER],
+                "vector_store_id": None,
+                "filters": None,
+            }
+        ),
+    )
     data = {
         k: []
         for k in [
@@ -158,7 +195,9 @@ def test_incomplete_extraction_never_returns_a_plan(monkeypatch):
     monkeypatch.setattr(planning, "planning_data", AsyncMock(return_value=data))
     monkeypatch.setattr(planning, "rest_request", AsyncMock(return_value=[]))
     monkeypatch.setattr(
-        planning.openai_service, "respond", AsyncMock(return_value={"status": "incomplete"})
+        planning.openai_service,
+        "respond",
+        AsyncMock(return_value={"status": "incomplete"}),
     )
     request = planning.PlanningRequest(family_id=ID, student_id=ID, message="Create schedule")
     with pytest.raises(HTTPException) as e:

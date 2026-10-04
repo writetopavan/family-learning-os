@@ -195,7 +195,6 @@ def test_written_answers_use_llm_and_incomplete_grades_are_not_saved(client, mon
                 {"id": ID, "question_type": "short", "marks": 3, "prompt": "Explain"}
             ],
             "assessment_answer_keys": [{"question_id": ID, "answer_key": "Explanation"}],
-            "student_ai_spaces": [],
         }[table]
 
     monkeypatch.setattr(learning, "rest_request", rest)
@@ -220,5 +219,7 @@ def test_written_answers_use_llm_and_incomplete_grades_are_not_saved(client, mon
         json={"answers": [{"question_id": ID, "answer": "My explanation"}]},
     )
     assert ai.await_count == 1
+    assert ai.call_args.kwargs.get("vector_store_id") is None
     assert r.status_code == (200 if complete else 503)
     assert rpc.await_count == (1 if complete else 0)
+

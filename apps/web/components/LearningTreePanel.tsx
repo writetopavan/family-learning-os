@@ -5,6 +5,7 @@ import type { LearningTree, Lesson } from "@/lib/types";
 import TutorPanel from "./TutorPanel";
 import TestsPanel from "./TestsPanel";
 import Markdown from "./Markdown";
+import SourceReferences from "./SourceReferences";
 export default function LearningTreePanel({
   familyId,
   studentId,
@@ -239,6 +240,7 @@ export default function LearningTreePanel({
           <article className="workspace-panel">
             <h2>{lesson.title}</h2>
             <Markdown>{lesson.content}</Markdown>
+              <SourceReferences sources={lesson.source_references} />
           </article>
         )}
         {view === "chat" && (
@@ -271,3 +273,4 @@ export default function LearningTreePanel({
     </div>
   );
 }
+

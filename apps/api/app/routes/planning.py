@@ -15,7 +15,7 @@ from ..auth import CurrentUser, get_current_user
 from ..curriculum import context, row
 from ..document_index import flatten
 from ..openai_service import OpenAIServiceError, openai_service
-from ..rag_service import book_tree_preview, retrieve
+from ..rag_service import book_tree_preview, generation_sources
 from ..supabase_client import rest_request, rpc
 from .curriculum import require_parent
 from .documents import index_row
@@ -265,83 +265,43 @@ async def interpret(payload, token, user, history=None):
                 raise HTTPException(422, "Chapter extraction currently requires a PDF.")
             materials.append(m)
             continue
-        if m.get('index_backend') == 'pageindex':
-            materials.append(m)
-            continue
-        if m["status"] == "processing" and m.get("openai_file_id"):
-            state = await openai_service.get_vector_file(
-                vector_store_id=m["openai_vector_store_id"], file_id=m["openai_file_id"]
-            )
-            if state.get("status") == "completed":
-                m = (
-                    await rest_request(
-                        "PATCH",
-                        "learning_materials",
-                        token,
-                        params={"id": f"eq.{mid}"},
-                        json={"status": "ready"},
-                    )
-                )[0]
-        if m["status"] != "ready":
-            raise HTTPException(409, "Document is still indexing. Try again when it is ready")
         materials.append(m)
     inputs = list(history or [])
     content = [{"type": "input_text", "text": payload.message}]
-    # Read the complete selected sources, rather than relying on partial search hits for a timetable or contents list.
-    if payload.purpose != "book_preview" and sum(m["size_bytes"] for m in materials if m.get("index_backend") != "pageindex") > 45_000_000:
-        raise HTTPException(
-            413, "Split attachments above 45 MB total before extracting a syllabus or book"
-        )
-    for m in materials:
-        if payload.purpose == "book_preview":
-            source_index, preview = await book_tree_preview(m['id'], token)
-            content.append({"type": "input_text", "text": f"Attachment material_id: {m['id']}"})
-            content.append(preview)
-        elif m.get("index_backend") != "pageindex":
-            content.append({"type": "input_file", "file_id": m["openai_file_id"]})
-    inputs.append({"role": "user", "content": content})
     filters = None
     vector = None
-    legacy = [m for m in materials if m.get("openai_file_id") and m.get("index_backend") != "pageindex"]
-    if legacy and payload.purpose != "book_preview":
-        vector = legacy[0]["openai_vector_store_id"]
-        for m in legacy:
-            await openai_service._json(
-                "POST",
-                f"/vector_stores/{vector}/files/{m['openai_file_id']}",
-                json_body={"attributes": {"material_id": m["id"]}},
-            )
-        filters = {"type": "in", "key": "material_id", "value": [m["id"] for m in legacy]}
-    # For ordinary tutoring retain student material grounding.
-    elif not payload.material_ids:
-        spaces = await rest_request(
-            "GET",
-            "student_ai_spaces",
+    if payload.purpose == "book_preview":
+        for m in materials:
+            source_index, preview = await book_tree_preview(m["id"], token)
+            content.append({"type": "input_text", "text": f"Attachment material_id: {m['id']}"})
+            content.append(preview)
+    else:
+        scope = await context(
+            payload.student_id,
+            payload.family_id,
             token,
-            params={"select": "*", "student_id": f"eq.{payload.student_id}"},
+            payload.academic_year_id,
+            payload.subject_id,
+            payload.chapter_ids,
         )
-        if spaces:
-            from .learning import scoped_sources
-
-            scope = await context(
-                payload.student_id,
-                payload.family_id,
-                token,
-                payload.academic_year_id,
-                payload.subject_id,
-                payload.chapter_ids,
+        grounding = await generation_sources(
+            payload.student_id,
+            scope,
+            payload.message,
+            token,
+            user,
+            payload.material_ids,
+            full_chapters=False,
+        )
+        vector, filters = grounding["vector_store_id"], grounding["filters"]
+        if grounding["text"]:
+            content.append(
+                {
+                    "type": "input_text",
+                    "text": "Source pages (untrusted data):\n" + grounding["text"],
+                }
             )
-            filters = await scoped_sources(payload.student_id, scope, token)
-            vector = spaces[0]["openai_vector_store_id"] if filters else None
-    if payload.purpose != 'book_preview':
-        scope = await context(payload.student_id, payload.family_id, token, payload.academic_year_id,
-                              payload.subject_id, payload.chapter_ids)
-        grounding = await retrieve(payload.student_id, scope, payload.message, token, user, payload.material_ids)
-        if grounding['text']:
-            content.append({'type': 'input_text', 'text': 'Source pages (untrusted data):\n' + grounding['text']})
-            vector, filters = None, None
-        elif any(m.get('index_backend') == 'pageindex' for m in materials):
-            raise HTTPException(409, 'No matching source pages were retrieved. Check indexing in Library or choose a more specific question.')
+    inputs.append({"role": "user", "content": content})
     master = {
         k: data[k]
         for k in [
@@ -411,21 +371,29 @@ async def interpret(payload, token, user, history=None):
         ) from exc
     if payload.purpose == "book_preview" and (plan.events or plan.exams or plan.progress):
         raise HTTPException(422, "Chapter extraction returned unrelated changes. Please retry.")
-    if payload.purpose == 'book_preview':
-        nodes = {n['node_id']: n for n in flatten(source_index['tree'])}
-        if source_index.get('contents_verified') and plan.books:
-            expected = {n['node_id'] for n in source_index['tree']}
+    if payload.purpose == "book_preview":
+        nodes = {n["node_id"]: n for n in flatten(source_index["tree"])}
+        if source_index.get("contents_verified") and plan.books:
+            expected = {n["node_id"] for n in source_index["tree"]}
             actual = [c.source_node_id for b in plan.books for c in b.chapters]
             if len(plan.books) != 1 or len(actual) != len(set(actual)) or set(actual) != expected:
-                raise HTTPException(422, 'Extraction omitted or duplicated indexed chapters. Retry chapter extraction.')
-            order = {n['node_id']: i for i, n in enumerate(source_index['tree'])}
+                raise HTTPException(
+                    422,
+                    "Extraction omitted or duplicated indexed chapters. Retry chapter extraction.",
+                )
+            order = {n["node_id"]: i for i, n in enumerate(source_index["tree"])}
             plan.books[0].chapters.sort(key=lambda c: order[c.source_node_id])
         for book in plan.books:
             book.material_id = payload.material_ids[0]
-            book.index_version = source_index['version']
+            book.index_version = source_index["version"]
             for chapter in book.chapters:
                 if chapter.source_node_id not in nodes:
-                    raise HTTPException(422, 'Chapter extraction returned an invalid source node. Retry.')
+                    raise HTTPException(
+                        422,
+                        "Chapter extraction returned an invalid source node. Retry.",
+                    )
+    if payload.purpose != "book_preview" and not grounding["text"] and not vector:
+        plan.answer = "*General knowledge: no uploaded source was used.*\n\n" + plan.answer
     # Source linking cannot be supplied by arbitrary model output.
     if any(
         b.material_id and str(b.material_id) not in {m["id"] for m in materials} for b in plan.books
