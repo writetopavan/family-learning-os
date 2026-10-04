@@ -12,7 +12,7 @@ from app.document_index import SKIPPED_PAGE_TEXT
 
 
 @pytest.mark.parametrize("status", [None, "processing", "failed"])
-def test_selected_legacy_pdf_never_falls_back_to_vectors(monkeypatch, status):
+def test_unavailable_pdf_index_falls_back_to_general_knowledge(monkeypatch, status):
     material = {
         "id": OTHER,
         "file_name": "old.pdf",
@@ -25,9 +25,11 @@ def test_selected_legacy_pdf_never_falls_back_to_vectors(monkeypatch, status):
     )
     search = AsyncMock()
     monkeypatch.setattr(rag_service.openai_service, "_json", search)
-    with pytest.raises(HTTPException) as error:
-        asyncio.run(rag_service.generation_sources(ID, {}, "Explain", "token", USER))
-    assert error.value.status_code == 409
+    result = asyncio.run(rag_service.generation_sources(ID, {}, "Explain", "token", USER))
+    assert result["grounded"] is False
+    assert result["text"] == ""
+    assert result["references"] == []
+    assert result["vector_store_id"] is None
     search.assert_not_called()
 
 
@@ -140,24 +142,41 @@ def test_lesson_reads_chapter_pages_and_persists_provenance(monkeypatch):
     assert assistant["material_ids"] == [OTHER]
 
 
-def test_unavailable_source_prevents_lesson_model_and_save(monkeypatch):
-    monkeypatch.setattr(workspace, "context", AsyncMock(return_value={}))
+def test_lesson_generates_from_general_knowledge_when_no_source_is_available(monkeypatch):
+    monkeypatch.setattr(
+        workspace,
+        "context",
+        AsyncMock(return_value={"label": "Science / Plants", "academic_year_id": ID, "subject_id": ID, "chapter_ids": []}),
+    )
     monkeypatch.setattr(workspace, "require_parent", AsyncMock())
     monkeypatch.setattr(
         rag_service,
         "generation_sources",
-        AsyncMock(side_effect=HTTPException(409, "Missing index")),
+        AsyncMock(
+            return_value={
+                "text": "",
+                "references": [],
+                "material_ids": [],
+                "vector_store_id": None,
+                "filters": None,
+                "grounded": False,
+            }
+        ),
     )
-    ai, writes = AsyncMock(), AsyncMock()
+    ai = AsyncMock(return_value={})
+    writes = AsyncMock(return_value=[{"id": ID}])
     monkeypatch.setattr(workspace.openai_service, "respond", ai)
+    monkeypatch.setattr(workspace.openai_service, "output_text", lambda _: "Plants make food.")
     monkeypatch.setattr(workspace, "rest_request", writes)
+    monkeypatch.setattr(learning, "_record_usage", AsyncMock())
     payload = workspace.LessonRequest(
         family_id=ID, student_id=ID, subject_id=ID, title="Plants", message="Explain"
     )
-    with pytest.raises(HTTPException):
-        asyncio.run(workspace.generate_lesson(payload, "Bearer test", USER))
-    ai.assert_not_called()
-    writes.assert_not_called()
+    asyncio.run(workspace.generate_lesson(payload, "Bearer test", USER))
+    assert ai.await_count == 1
+    saved = writes.call_args_list[0].kwargs["json"]
+    assert saved["source_references"] == []
+    assert saved["content"].startswith("*General knowledge: no uploaded source was used.*")
 
 
 def test_assessment_uses_shared_sources_and_saves_citations(monkeypatch):
@@ -215,7 +234,7 @@ def test_assessment_uses_shared_sources_and_saves_citations(monkeypatch):
         family_id=ID, student_id=ID, subject_id=ID, chapter_ids=[ID], question_count=3
     )
     asyncio.run(learning.generate_assessment(payload, "Bearer test", USER))
-    assert sources.call_args.kwargs["required"] is True
+    assert sources.call_args.kwargs["required"] is False
     assert sources.call_args.kwargs["full_chapters"] is True
     assert "chlorophyll" in ai.call_args.kwargs["input_items"]
     assert ai.call_args.kwargs["vector_store_id"] is None
@@ -261,10 +280,11 @@ def test_empty_selected_pages_do_not_generate_content(monkeypatch):
     assert error.value.status_code == 409
 
 
-def test_assessments_require_sources_even_when_none_uploaded(monkeypatch):
+def test_assessments_can_generate_without_uploaded_sources(monkeypatch):
     monkeypatch.setattr(rag_service, "materials_for_context", AsyncMock(return_value=[]))
-    with pytest.raises(HTTPException) as error:
-        asyncio.run(
-            rag_service.generation_sources(ID, {}, "Create test", "token", USER, required=True)
-        )
-    assert error.value.status_code == 400
+    result = asyncio.run(
+        rag_service.generation_sources(ID, {}, "Create test", "token", USER, required=True)
+    )
+    assert result["grounded"] is False
+    assert result["text"] == ""
+    assert result["references"] == []
