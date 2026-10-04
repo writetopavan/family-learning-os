@@ -1,4 +1,5 @@
 import { apiJson } from "./api";
+import { buildDocumentIndex } from "./document-index";
 import { createSupabaseBrowserClient } from "./supabase-browser";
 import type { Material, LearningTree } from "./types";
 export type Topic = {
@@ -101,7 +102,7 @@ export async function uploadStudentFile(
       upsert: false,
     });
   if (error) throw Error(error.message);
-  return postJson<Material>("/v1/materials/register", {
+  const material = await postJson<Material>("/v1/materials/register", {
     id,
     family_id: context.familyId,
     student_id: context.studentId,
@@ -114,4 +115,9 @@ export async function uploadStudentFile(
     mime_type: file.type || null,
     size_bytes: file.size,
   });
+  if (file.name.toLowerCase().endsWith(".pdf")) {
+    await buildDocumentIndex(material.id, () => {});
+    return { ...material, status: "ready" as const, index_backend: "pageindex" as const };
+  }
+  return material;
 }

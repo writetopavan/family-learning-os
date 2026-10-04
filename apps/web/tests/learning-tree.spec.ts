@@ -574,3 +574,24 @@ test("library shows context and confirms a detected subject before saving", asyn
   await expect(page.getByLabel("Study subject", { exact: true })).toHaveValue("science");
   expect(applied).toBe(true);
 });
+
+
+test("chat PDF attachment finishes its owned index before it can be sent", async ({ page, context }) => {
+  await setup(page, context);
+  await page.getByRole("button", { name: "Tutor", exact: false }).first().click();
+  await page.route("**/storage/v1/object/learning-materials/**", route => route.fulfill({ json: { Key: "private/notes.pdf" } }));
+  await page.route("**/v1/materials/register", route => route.fulfill({ json: {
+    id: "notes-pdf", title: "Plants", file_name: "notes.pdf", size_bytes: 30, status: "processing", index_backend: "pageindex", error_message: null,
+  } }));
+  const job = { material_id: "notes-pdf", status: "queued", stage: "parse", version: 1, page_count: 0,
+    completed_pages: 0, error_message: null, contents_verified: false, tree: [] };
+  await page.route("**/v1/materials/notes-pdf/index", route => route.fulfill({ json: job }));
+  let advanced = false;
+  await page.route("**/v1/materials/notes-pdf/index/advance", route => {
+    advanced = true;
+    return route.fulfill({ json: { ...job, status: "ready", stage: "complete", page_count: 1, completed_pages: 1 } });
+  });
+  await page.getByLabel("Chat attachment").setInputFiles({ name: "notes.pdf", mimeType: "application/pdf", buffer: Buffer.from("mock PDF; backend response is stubbed") });
+  await expect(page.getByText("notes.pdf · ready")).toBeVisible();
+  expect(advanced).toBe(true);
+});
