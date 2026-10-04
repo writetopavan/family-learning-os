@@ -112,6 +112,7 @@ def test_lesson_reads_chapter_pages_and_persists_provenance(monkeypatch):
             "material_ids": [OTHER],
             "vector_store_id": None,
             "filters": None,
+            "grounded": True,
         }
     )
     monkeypatch.setattr(rag_service, "generation_sources", sources)
