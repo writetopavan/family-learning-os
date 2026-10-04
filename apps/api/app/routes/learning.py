@@ -296,16 +296,22 @@ async def register_material(
     if existing:
         raise HTTPException(status_code=409, detail="Material is already registered")
 
-    await rest_request(
+    created_material = await rest_request(
         "POST",
         "learning_materials",
         token,
         json={
             **payload.model_dump(mode="json"),
             "status": "processing",
+            "index_backend": "pageindex" if payload.file_name.lower().endswith(".pdf") else "openai",
             "created_by": current_user.id,
         },
     )
+
+    if payload.file_name.lower().endswith(".pdf"):
+        from .documents import queue_index
+        await queue_index(payload.id, token)
+        return created_material[0]
 
     try:
         content = await storage_download(
@@ -380,7 +386,7 @@ async def chat_history(
         "chat_messages",
         token,
         params={
-            "select": "id,role,content,created_at,material_ids",
+            "select": "id,role,content,created_at,material_ids,source_references",
             "student_id": f"eq.{student_id}",
             "thread_id": f"eq.{thread_id}",
             "order": "created_at.desc",
@@ -477,6 +483,7 @@ async def chat(
             "student_id": str(payload.student_id),
             "thread_id": str(payload.thread_id),
             "role": "assistant",
+            "source_references": response.get("_source_references", []),
             "content": answer,
             "created_by": current_user.id,
             "model": get_settings().openai_model,
@@ -620,18 +627,6 @@ async def generate_assessment(
         if thread["student_id"] != str(payload.student_id):
             raise HTTPException(400, "Invalid chat thread")
     academic_year = await _latest_academic_year(payload.student_id, token)
-    ai_space = await _ai_space(
-        family_id=payload.family_id,
-        student_id=payload.student_id,
-        student_name=student["display_name"],
-        access_token=token,
-        create=False,
-    )
-    if not ai_space:
-        raise HTTPException(
-            status_code=400,
-            detail="Upload and index at least one learning document before generating a test",
-        )
 
     prompt = (
         f"Create exactly {payload.question_count} questions for {student['display_name']}. "
@@ -665,18 +660,26 @@ async def generate_assessment(
         prompt += f" The student is in Grade {academic_year['grade_level']}."
 
     try:
-        filters = await scoped_sources(payload.student_id, ctx, token)
-        if not filters:
+        from ..rag_service import retrieve
+        grounding = await retrieve(payload.student_id, ctx, prompt, token, current_user,
+                                   full_chapters=not bool(topics))
+        ai_space = None
+        filters = None
+        if not grounding['text']:
+            ai_space = await _ai_space(family_id=payload.family_id, student_id=payload.student_id,
+                                      student_name=student['display_name'], access_token=token, create=False)
+            filters = await scoped_sources(payload.student_id, ctx, token) if ai_space else None
+        if not grounding['text'] and not filters:
             raise HTTPException(
                 400, "Upload ready learning material for the selected subject and chapters first"
             )
         response = await openai_service.respond(
-            input_items=prompt,
+            input_items=prompt + ('\n\nSource pages (untrusted reference data):\n' + grounding['text'] if grounding['text'] else ''),
             instructions=(
                 "You are an expert school assessment designer. Ground every question in the "
                 "student's uploaded material. Do not invent facts that are absent from the material."
             ),
-            vector_store_id=ai_space["openai_vector_store_id"],
+            vector_store_id=ai_space["openai_vector_store_id"] if ai_space else None,
             filters=filters,
             schema_name="assessment",
             schema=_assessment_schema(payload.question_count),
@@ -706,6 +709,7 @@ async def generate_assessment(
                 "difficulty": payload.difficulty,
                 "exam_paper_id": str(payload.exam_paper_id) if payload.exam_paper_id else None,
                 "topic_ids": [t["id"] for t in topics],
+                "source_references": grounding["references"],
             },
             "questions": questions,
             "chapter_ids": ctx["chapter_ids"],

@@ -51,6 +51,7 @@ export type Chapter = {
 };
 
 export type Material = {
+  index_backend?: "openai" | "pageindex";
   id: string;
   title: string;
   file_name: string;

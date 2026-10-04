@@ -58,7 +58,8 @@ export type Plan = {
     title: string;
     subject: string;
     material_id: string | null;
-    chapters: Array<{ title: string; topics: string[] }>;
+    index_version?: number | null;
+    chapters: Array<{ title: string; topics: string[]; source_node_id?: string | null }>;
   }>;
   progress: Array<{
     chapter_id: string | null;

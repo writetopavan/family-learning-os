@@ -28,7 +28,7 @@ export async function apiFetch(path: string, init?: RequestInit): Promise<Respon
         Authorization: `Bearer ${token}`,
         ...(init?.headers ?? {}),
       },
-      signal: controller.signal,
+      signal: init?.signal ? AbortSignal.any([init.signal, controller.signal]) : controller.signal,
     });
   } finally {
     window.clearTimeout(timeout);

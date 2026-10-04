@@ -531,6 +531,15 @@ test("library shows context and confirms a detected subject before saving", asyn
     id: "science-pdf", title: "Class 8 Science", file_name: "science-class-8.pdf",
     size_bytes: 33598539, status: "processing", error_message: null,
   }] }));
+  const indexJob = { material_id: "science-pdf", status: "queued", stage: "parse", version: 1, page_count: 0,
+    completed_pages: 0, error_message: null, contents_verified: true, tree: [] };
+  await page.route("**/v1/materials/science-pdf/index", route => route.fulfill({ json: indexJob }));
+  let advanced = false;
+  await page.route("**/v1/materials/science-pdf/index/advance", route => {
+    advanced = true;
+    return route.fulfill({ json: { ...indexJob, status: "ready", stage: "complete", page_count: 265, completed_pages: 265,
+      tree: [{ node_id: "chapter-1", title: "Crop Production and Management", start_index: 14, end_index: 29 }] } });
+  });
   await page.reload();
   await page.getByRole("button", { name: "Advik Open learning workspace" }).click();
   await expect(page.getByLabel("Study subject", { exact: true })).toHaveValue("art");
@@ -542,6 +551,7 @@ test("library shows context and confirms a detected subject before saving", asyn
   await page.route("**/v1/planning/interpret", (route) => {
     expect(route.request().postDataJSON().subject_id).toBe("art");
     expect(route.request().postDataJSON().purpose).toBe("book_preview");
+    expect(advanced).toBe(true);
     return route.fulfill({ json: { academic_year_id: "year", plan: {
       answer: "This is Science. Confirm to save under Science.",
       books: [{ title: "Science Textbook Class VIII", subject: "Science", material_id: "science-pdf",
