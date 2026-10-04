@@ -44,6 +44,7 @@ export default function MaterialsPanel({
   const [planYear, setPlanYear] = useState<string | null>(null);
   const [textbook, setTextbook] = useState(false);
   const [importing, setImporting] = useState(false);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
   const [status, setStatus] = useState("");
   const readyCount = useMemo(
@@ -59,6 +60,23 @@ export default function MaterialsPanel({
   const saveLabel = differentSubject
     ? `Confirm and save under ${detectedSubjects.join(", ")}`
     : "Save plan";
+
+  async function deleteMaterial(item: Material) {
+    if (deletingId || uploading || importing) return;
+    if (!window.confirm(`Delete “${item.title}”? This permanently removes the uploaded file, extracted pages, index, and chapters/topics linked to this extraction. Saved tests, results and lessons are kept.`)) return;
+    setDeletingId(item.id);
+    setStatus("Deleting material and its extraction…");
+    try {
+      await apiJson(`/v1/materials/${item.id}`, { method: "DELETE" });
+      setBookPlan(null);
+      await onReload();
+      setStatus("Material and its extraction deleted.");
+    } catch (e) {
+      setStatus(e instanceof Error ? e.message : "Could not delete material. Please retry.");
+    } finally {
+      setDeletingId(null);
+    }
+  }
 
   async function upload(event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
@@ -214,7 +232,7 @@ export default function MaterialsPanel({
           type="file"
           accept=".pdf,.txt,.md,.doc,.docx,.ppt,.pptx"
           onChange={upload}
-          disabled={uploading}
+          disabled={uploading || !!deletingId}
         />
         <div className="upload-icon">↑</div>
         <div>
@@ -274,14 +292,22 @@ export default function MaterialsPanel({
                   {item.file_name} · {prettyBytes(item.size_bytes)}
                 </span>
                 {item.error_message && <small>{item.error_message}</small>}
-                {item.file_name.toLowerCase().endsWith('.pdf') && <DocumentIndexStatus materialId={item.id} materialStatus={item.status} onReady={onReload} />}
+                {deletingId !== item.id && item.file_name.toLowerCase().endsWith('.pdf') && <DocumentIndexStatus materialId={item.id} materialStatus={item.status} onReady={onReload} />}
               </div>
               <button
                 className="text-button"
-                disabled={importing || uploading || !subjectId}
+                disabled={importing || uploading || !!deletingId || !subjectId}
                 onClick={() => void extractBook(item.id)}
               >
                 Extract chapters
+              </button>
+              <button
+                className="text-button"
+                aria-label={`Delete ${item.title}`}
+                disabled={uploading || importing || !!deletingId}
+                onClick={() => void deleteMaterial(item)}
+              >
+                {deletingId === item.id ? "Deleting…" : "Delete"}
               </button>
               <span className={`status-badge ${item.status}`}>
                 {item.status === "ready"
