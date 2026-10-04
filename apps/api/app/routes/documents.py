@@ -3,14 +3,16 @@
 import asyncio
 from uuid import UUID
 
+import httpx
 from fastapi import APIRouter, Depends, Header, HTTPException
 from pydantic import BaseModel
 
 from ..auth import CurrentUser, get_current_user
 from ..curriculum import row
 from ..document_index import page_image, parse_pdf
-from ..openai_service import openai_service
-from ..supabase_client import rest_request, rpc, storage_download
+from ..openai_service import OpenAIServiceError, openai_service
+from ..supabase_client import rest_request, rpc, storage_download, storage_remove
+from .curriculum import require_parent
 
 INDEX_SLOT = asyncio.Semaphore(1)
 
@@ -19,6 +21,29 @@ router = APIRouter(prefix="/v1/materials", tags=["documents"])
 
 class IndexRequest(BaseModel):
     rebuild: bool = False
+
+
+@router.delete("/{material_id}")
+async def delete_material(
+    material_id: UUID,
+    authorization: str = Header(...),
+    user: CurrentUser = Depends(get_current_user),
+):
+    token = authorization.removeprefix("Bearer ").strip()
+    material = await row("learning_materials", material_id, token)
+    await require_parent(material, token, user)
+    # Retain remote IDs until cleanup succeeds so failures can be retried.
+    # Deleting the OpenAI file removes its vector-store attachments too;
+    # the student's shared vector store must remain available for other files.
+    try:
+        if material.get("openai_file_id"):
+            await openai_service.delete_resource("files", material["openai_file_id"])
+        await storage_remove("learning-materials", material["storage_path"], token)
+        return await rpc("delete_learning_material", token, {"target_material": str(material_id)})
+    except (httpx.HTTPError, OpenAIServiceError) as exc:
+        raise HTTPException(
+            503, "Material cleanup could not finish. Retry deletion to complete it."
+        ) from exc
 
 
 async def index_row(material_id, token):
