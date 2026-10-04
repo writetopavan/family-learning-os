@@ -641,7 +641,9 @@ async def generate_assessment(
     prompt = (
         f"Create exactly {payload.question_count} questions for {student['display_name']}. "
         f"Difficulty preference: {payload.difficulty}. "
-        "Base the test on the uploaded learning material. Mix MCQ, short-answer and longer "
+        "Prefer the uploaded learning material when relevant source context is available. "
+        "If no usable source context is available, generate the test from reliable general "
+        "knowledge while still following the selected curriculum. Mix MCQ, short-answer and longer "
         "reasoning questions where appropriate. MCQs must have exactly four options. "
         "For non-MCQ questions use an empty options array. Use age-appropriate language. "
         "Give each question sensible marks and include an answer key and concise grading explanation."
@@ -679,8 +681,9 @@ async def generate_assessment(
             token,
             current_user,
             full_chapters=not bool(topics),
-            required=True,
+            required=False,
         )
+        grounded = bool(grounding["grounded"])
         response = await openai_service.respond(
             input_items=prompt
             + (
@@ -689,8 +692,16 @@ async def generate_assessment(
                 else ""
             ),
             instructions=(
-                "You are an expert school assessment designer. Ground every question in the "
-                "student's uploaded material. Do not invent facts that are absent from the material."
+                "You are an expert school assessment designer. "
+                + (
+                    "Use the supplied learning material as the primary source. Keep questions faithful "
+                    "to it and do not claim unsupported source facts."
+                    if grounded
+                    else
+                    "No usable uploaded source was retrieved. Generate accurate questions from general "
+                    "knowledge, constrained by the selected grade, subject, chapters/topics, difficulty "
+                    "and requested blueprint. Do not pretend the questions came from an uploaded source."
+                )
             ),
             vector_store_id=grounding["vector_store_id"],
             filters=grounding["filters"],
