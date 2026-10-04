@@ -34,7 +34,7 @@ test("unauthenticated dashboard returns to sign-in without family API requests",
   await page.route("http://127.0.0.1:4100/**", (route) => { requests++; return route.fulfill({ json: [] }); });
   await page.goto("/dashboard");
   await expect(page.getByRole("button", { name: "Continue with Google" })).toBeVisible();
-  await expect(page).toHaveURL("http://localhost:3000/");
+  await expect(page).toHaveURL(`http://localhost:${process.env.TEST_PORT || "3000"}/`);
   expect(requests).toBe(0);
 });
 
@@ -44,7 +44,7 @@ test("disabled Google keeps the email fallback usable", async ({ page }) => {
   await page.getByRole("button", { name: "Continue with Google" }).click();
   await expect(page.getByRole("status")).toContainText("Google sign-in is not available yet");
   await expect(page.getByRole("button", { name: "Send sign-in link" })).toBeEnabled();
-  await expect(page).toHaveURL("http://localhost:3000/");
+  await expect(page).toHaveURL(`http://localhost:${process.env.TEST_PORT || "3000"}/`);
 });
 
 test("Google OAuth uses PKCE and returns to the child chooser", async ({ page }) => {
@@ -55,7 +55,7 @@ test("Google OAuth uses PKCE and returns to the child chooser", async ({ page })
     if (url.pathname.endsWith("/settings")) return route.fulfill({ json: { external: { google: true } } });
     if (url.pathname.endsWith("/authorize")) {
       expect(url.searchParams.get("provider")).toBe("google");
-      expect(url.searchParams.get("redirect_to")).toBe("http://localhost:3000/auth/callback");
+      expect(url.searchParams.get("redirect_to")).toBe(`http://localhost:${process.env.TEST_PORT || "3000"}/auth/callback`);
       expect(url.searchParams.get("code_challenge_method")).toBe("s256");
       expect(url.searchParams.get("prompt")).toBe("select_account");
       return route.fulfill({ contentType: "text/html", body: "<h1>Mock Google authorization</h1>" });
@@ -76,14 +76,14 @@ test("Google OAuth uses PKCE and returns to the child chooser", async ({ page })
   await page.goto("/auth/callback?code=test-code");
   await expect(page.getByRole("heading", { name: "Who is learning today?" })).toBeVisible();
   expect(exchanged).toBe(true);
-  await expect(page).toHaveURL("http://localhost:3000/dashboard");
+  await expect(page).toHaveURL(`http://localhost:${process.env.TEST_PORT || "3000"}/dashboard`);
 });
 
 test("cancelled authorization removes error parameters and offers retry", async ({ page }) => {
   await page.goto("/auth/callback?error=access_denied&error_description=private-details");
   await expect(page.getByRole("status")).toContainText("cancelled or the link has expired");
   await expect(page.getByRole("link", { name: "Back to sign in" })).toBeVisible();
-  await expect(page).toHaveURL("http://localhost:3000/auth/callback");
+  await expect(page).toHaveURL(`http://localhost:${process.env.TEST_PORT || "3000"}/auth/callback`);
   await expect(page.locator("body")).not.toContainText("private-details");
 });
 
@@ -136,7 +136,7 @@ test("email link fallback returns through the same callback", async ({ page }) =
   let requested = false;
   await page.route("https://auth.example.test/auth/v1/otp**", async (route) => {
     const url = new URL(route.request().url());
-    expect(url.searchParams.get("redirect_to")).toBe("http://localhost:3000/auth/callback");
+    expect(url.searchParams.get("redirect_to")).toBe(`http://localhost:${process.env.TEST_PORT || "3000"}/auth/callback`);
     expect(route.request().postDataJSON().email).toBe("parent@example.test");
     requested = true;
     await route.fulfill({ json: {} });
@@ -156,7 +156,7 @@ test("sign-out clears parent access to the dashboard", async ({ context, page })
   await page.getByRole("button", { name: "Sign out", exact: true }).click();
   await expect(page.getByRole("button", { name: "Continue with Google" })).toBeVisible();
   await page.goto("/dashboard");
-  await expect(page).toHaveURL("http://localhost:3000/");
+  await expect(page).toHaveURL(`http://localhost:${process.env.TEST_PORT || "3000"}/`);
 });
 
 test("login and child chooser fit mobile screens without runtime errors", async ({ context, page }, testInfo) => {

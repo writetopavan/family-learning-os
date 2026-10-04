@@ -42,6 +42,7 @@ export type Book = {
 };
 
 export type Chapter = {
+  completed_at?: string | null;
   id: string;
   family_id: string;
   book_id: string;
@@ -61,6 +62,7 @@ export type Material = {
 };
 
 export type ChatMessage = {
+  material_ids?: string[];
   id: string;
   role: "user" | "assistant";
   content: string;

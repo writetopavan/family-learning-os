@@ -5,6 +5,7 @@ from .config import get_settings
 from .routes.curriculum import router as curriculum_router
 from .routes.families import router as family_router
 from .routes.learning import router as learning_router
+from .routes.planning import router as planning_router
 from .routes.workspace import router as workspace_router
 
 settings = get_settings()
@@ -26,6 +27,7 @@ app.include_router(family_router)
 app.include_router(learning_router)
 app.include_router(curriculum_router)
 app.include_router(workspace_router)
+app.include_router(planning_router)
 
 
 @app.get("/health")

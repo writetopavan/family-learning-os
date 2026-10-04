@@ -3,6 +3,9 @@
 import { ChangeEvent, useMemo, useState } from "react";
 import { apiJson } from "@/lib/api";
 import { createSupabaseBrowserClient } from "@/lib/supabase-browser";
+import PlanReview from "./PlanReview";
+import { postJson } from "@/lib/planning";
+import type { Plan } from "@/lib/planning";
 import type { Material } from "@/lib/types";
 
 type Props = {
@@ -29,6 +32,10 @@ export default function MaterialsPanel({
   materials,
   onReload,
 }: Props) {
+  const [bookPlan, setBookPlan] = useState<Plan | null>(null);
+  const [planYear, setPlanYear] = useState<string | null>(null);
+  const [textbook, setTextbook] = useState(false);
+  const [importing, setImporting] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [status, setStatus] = useState("");
   const readyCount = useMemo(
@@ -65,7 +72,7 @@ export default function MaterialsPanel({
       if (error) throw new Error(error.message);
 
       setStatus("Indexing for AI tutor…");
-      await apiJson<Material>("/v1/materials/register", {
+      const material = await apiJson<Material>("/v1/materials/register", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -83,7 +90,13 @@ export default function MaterialsPanel({
         }),
       });
 
-      setStatus("Document added. It is ready for the tutor.");
+      setStatus(
+        material.status === "ready"
+          ? "Document added. It is ready for the tutor."
+          : "Uploaded. Indexing is still in progress.",
+      );
+      if (textbook && material.status === "ready")
+        await extractBook(material.id);
       await onReload();
     } catch (err) {
       setStatus(err instanceof Error ? err.message : "Upload failed.");
@@ -92,13 +105,58 @@ export default function MaterialsPanel({
     }
   }
 
+  async function extractBook(id: string) {
+    setImporting(true);
+    try {
+      const extracted = await postJson<{
+        plan: Plan;
+        academic_year_id: string | null;
+      }>("/v1/planning/interpret", {
+        family_id: familyId,
+        student_id: studentId,
+        academic_year_id: academicYearId || null,
+        subject_id: subjectId || null,
+        message:
+          "Import this textbook into the selected subject. Extract the complete table of contents as chapters and its topics. Link the book to the attached material.",
+        material_ids: [id],
+      });
+      setBookPlan(extracted.plan);
+      setPlanYear(extracted.academic_year_id);
+    } catch (e) {
+      setStatus(e instanceof Error ? e.message : "Book extraction failed");
+    } finally {
+      setImporting(false);
+    }
+  }
+  async function saveBook() {
+    if (!bookPlan) return;
+    setImporting(true);
+    try {
+      await postJson("/v1/planning/apply", {
+        family_id: familyId,
+        student_id: studentId,
+        academic_year_id: planYear,
+        plan: bookPlan,
+      });
+      setBookPlan(null);
+      setStatus("Book, chapters and topics saved in the learning tree.");
+      await onReload();
+    } catch (e) {
+      setStatus(e instanceof Error ? e.message : "Could not save book");
+    } finally {
+      setImporting(false);
+    }
+  }
   return (
     <section className="workspace-panel">
       <div className="panel-heading">
         <div>
           <span className="eyebrow">Learning library</span>
           <h2>Upload school material</h2>
-          <p>PDFs, notes and worksheets become searchable context for chat and tests.</p>
+          <p>
+            PDFs, notes and worksheets become searchable context for chat and
+            tests.
+          </p>
         </div>
         <div className="metric-pill">
           <strong>{readyCount}</strong>
@@ -106,6 +164,18 @@ export default function MaterialsPanel({
         </div>
       </div>
 
+      <label className="textbook-option">
+        <input
+          type="checkbox"
+          checked={textbook}
+          disabled={uploading || importing || !subjectId}
+          onChange={(e) => setTextbook(e.target.checked)}
+        />{" "}
+        This is a textbook — extract chapters and topics after indexing
+      </label>
+      {!subjectId && (
+        <p>Select a subject in Overview before importing a textbook.</p>
+      )}
       <label className={`upload-dropzone ${uploading ? "is-busy" : ""}`}>
         <input
           type="file"
@@ -115,21 +185,44 @@ export default function MaterialsPanel({
         />
         <div className="upload-icon">↑</div>
         <div>
-          <strong>{uploading ? "Working on your document…" : "Drop a file here or browse"}</strong>
+          <strong>
+            {uploading
+              ? "Working on your document…"
+              : "Drop a file here or browse"}
+          </strong>
           <p>PDF, Word, PowerPoint or text · up to 100 MB</p>
         </div>
-        <span className="secondary-button">{uploading ? "Please wait" : "Choose file"}</span>
+        <span className="secondary-button">
+          {uploading ? "Please wait" : "Choose file"}
+        </span>
       </label>
 
-      {status && <div className={`alert ${status.toLowerCase().includes("fail") ? "error" : ""}`}>{status}</div>}
+      {status && (
+        <div
+          className={`alert ${status.toLowerCase().includes("fail") ? "error" : ""}`}
+        >
+          {status}
+        </div>
+      )}
 
+      {bookPlan && (
+        <PlanReview
+          plan={bookPlan}
+          busy={importing}
+          onSave={() => void saveBook()}
+          onCancel={() => setBookPlan(null)}
+        />
+      )}
       <div className="library-list">
         {materials.length === 0 ? (
           <div className="empty-card">
             <span className="empty-icon">▤</span>
             <div>
               <strong>No material yet</strong>
-              <p>Upload a chapter PDF first. Tutor and test generation will use it automatically.</p>
+              <p>
+                Upload a chapter PDF first. Tutor and test generation will use
+                it automatically.
+              </p>
             </div>
           </div>
         ) : (
@@ -138,11 +231,24 @@ export default function MaterialsPanel({
               <div className="file-tile">PDF</div>
               <div className="material-copy">
                 <strong>{item.title}</strong>
-                <span>{item.file_name} · {prettyBytes(item.size_bytes)}</span>
+                <span>
+                  {item.file_name} · {prettyBytes(item.size_bytes)}
+                </span>
                 {item.error_message && <small>{item.error_message}</small>}
               </div>
+              <button
+                className="text-button"
+                disabled={importing || uploading || !subjectId}
+                onClick={() => void extractBook(item.id)}
+              >
+                Extract chapters
+              </button>
               <span className={`status-badge ${item.status}`}>
-                {item.status === "ready" ? "Ready" : item.status === "processing" ? "Indexing" : "Failed"}
+                {item.status === "ready"
+                  ? "Ready"
+                  : item.status === "processing"
+                    ? "Indexing"
+                    : "Failed"}
               </span>
             </article>
           ))

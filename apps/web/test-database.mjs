@@ -15,6 +15,7 @@ for (const filename of [
   "202609280001_learning_loop.sql",
   "20261003132330_learning_tree.sql",
   "20261004032602_student_onboarding.sql",
+  "20261004035656_schedules_exam_prep.sql",
 ]) {
   await db.exec(
     fs

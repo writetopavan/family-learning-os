@@ -158,17 +158,17 @@ def test_nonempty_curriculum_delete_is_blocked(client, monkeypatch):
 
 
 def test_scoped_sources_uses_only_selected_chapters(monkeypatch):
-    rest = AsyncMock(
-        return_value=[
-            {"id": ID, "openai_file_id": "file-test", "openai_vector_store_id": "vs-test"}
-        ]
-    )
+    async def request(method, table, *args, **kwargs):
+        if table == "chapters":
+            return [{"book_id": OTHER}]
+        return [{"id": ID, "openai_file_id": "file-test", "openai_vector_store_id": "vs-test"}]
+    rest = AsyncMock(side_effect=request)
     monkeypatch.setattr(learning, "rest_request", rest)
     monkeypatch.setattr(learning.openai_service, "_json", AsyncMock(return_value={}))
     filters = asyncio.run(
         learning.scoped_sources(ID, {"subject_id": OTHER, "chapter_ids": [ID]}, "test")
     )
-    assert rest.call_args.kwargs["params"]["chapter_id"] == f"in.({ID})"
+    assert rest.call_args.kwargs["params"]["or"] == f"(chapter_id.in.({ID}),book_id.in.({OTHER}))"
     assert filters == {"type": "in", "key": "material_id", "value": [ID]}
 
 
