@@ -220,3 +220,21 @@ def test_selected_chapter_cannot_read_an_attachment_from_another_book(monkeypatc
     with pytest.raises(HTTPException) as error:
         asyncio.run(rag_service.retrieve(ID, {"chapter_ids": [ID]}, "Test", "token", USER, [OTHER]))
     assert error.value.status_code == 409
+
+
+def test_ocr_page_render_is_a_bounded_jpeg():
+    import base64
+
+    from PIL import Image
+
+    from app.document_index import page_image
+
+    pdf = PdfWriter()
+    pdf.add_blank_page(width=1000, height=1600)
+    output = BytesIO()
+    pdf.write(output)
+    rendered = page_image(output.getvalue(), 1)
+    assert rendered.startswith("data:image/jpeg;base64,")
+    image = Image.open(BytesIO(base64.b64decode(rendered.split(",", 1)[1])))
+    assert image.format == "JPEG"
+    assert max(image.size) <= 1200
