@@ -32,26 +32,37 @@ async def generation_sources(
     full_chapters=False,
     required=False,
 ):
-    grounding = await retrieve(student_id, ctx, query, token, user, material_ids, full_chapters)
+    try:
+        grounding = await retrieve(
+            student_id, ctx, query, token, user, material_ids, full_chapters
+        )
+    except HTTPException as exc:
+        # Retrieval/index availability must never prevent an otherwise valid AI request.
+        # Keep validation/auth failures (400/403/404) explicit, but degrade document
+        # retrieval failures to general-knowledge generation.
+        if exc.status_code not in {409, 422}:
+            raise
+        grounding = {
+            "text": "",
+            "references": [],
+            "material_ids": [],
+            "managed": [],
+        }
+
     managed = grounding.pop("managed", [])
     vector = None
     filters = None
-    if managed:
-        if any(
-            m.get("status") != "ready"
-            or not m.get("openai_file_id")
-            or not m.get("openai_vector_store_id")
-            for m in managed
-        ):
-            raise HTTPException(409, "A selected document is not ready. Check indexing in Library.")
-        stores = {m["openai_vector_store_id"] for m in managed}
-        if len(stores) != 1:
-            raise HTTPException(
-                409,
-                "Selected documents use different search indexes. Re-upload them for this learner.",
-            )
+    ready_managed = [
+        m
+        for m in managed
+        if m.get("status") == "ready"
+        and m.get("openai_file_id")
+        and m.get("openai_vector_store_id")
+    ]
+    stores = {m["openai_vector_store_id"] for m in ready_managed}
+    if ready_managed and len(stores) == 1:
         vector = stores.pop()
-        for m in managed:
+        for m in ready_managed:
             await openai_service._json(
                 "POST",
                 f"/vector_stores/{vector}/files/{m['openai_file_id']}",
@@ -60,15 +71,18 @@ async def generation_sources(
         filters = {
             "type": "in",
             "key": "material_id",
-            "value": [m["id"] for m in managed],
+            "value": [m["id"] for m in ready_managed],
         }
-        grounding["material_ids"].extend(m["id"] for m in managed)
-    if required and not grounding["text"] and not filters:
-        raise HTTPException(
-            400,
-            "Upload ready learning material for the selected subject and chapters first",
-        )
-    return {**grounding, "vector_store_id": vector, "filters": filters}
+        grounding["material_ids"].extend(m["id"] for m in ready_managed)
+
+    # `required` is retained for backward-compatible callers only. Grounding is
+    # preferred, never required: callers can always continue with general knowledge.
+    return {
+        **grounding,
+        "vector_store_id": vector,
+        "filters": filters,
+        "grounded": bool(grounding["text"] or filters),
+    }
 
 
 async def materials_for_context(student_id, ctx, token):
