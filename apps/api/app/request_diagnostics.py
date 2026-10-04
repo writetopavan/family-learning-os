@@ -34,10 +34,15 @@ def install_request_diagnostics(app):
                 status, detail = 503, "Could not connect to a required service. Please try again."
             elif isinstance(exc, httpx.HTTPStatusError):
                 upstream_status = exc.response.status_code
-                if upstream_status in (401, 403):
+                if upstream_status == 401:
                     status, detail = (
                         upstream_status,
-                        "Your session or access permission was rejected. Please sign in again.",
+                        "Your session was rejected. Please sign in again.",
+                    )
+                elif upstream_status == 403:
+                    status, detail = (
+                        403,
+                        "A database access rule rejected this action. Signing in again may not resolve it.",
                     )
                 else:
                     status, detail = (
