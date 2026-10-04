@@ -87,6 +87,26 @@ await assert.rejects(()=>one('select * from document_indexes'));
 await assert.rejects(()=>one('select * from document_pages'));
 await assert.rejects(()=>queue());
 await db.exec("set role authenticated;set request.jwt.claim.sub='11111111-1111-4111-8111-111111111111'");
+
+const cid = (await one("select id from chapters where title='Plants'")).id;
+const bid = (await one('select book_id from chapters where id=$1',[cid])).book_id;
+await one("insert into learning_contents(family_id,student_id,academic_year_id,subject_id,chapter_id,title,content,created_by) values($1,$2,$3,$4,$5,'Saved lesson','Keep this',auth.uid())",[f,student,y,s,cid]);
+const lease = await claim();
+await db.exec("set request.jwt.claim.sub='22222222-2222-4222-8222-222222222222'");
+await assert.rejects(()=>one('select delete_learning_material($1)',[material]));
+await db.exec("set request.jwt.claim.sub='11111111-1111-4111-8111-111111111111'");
+const removed = (await one('select delete_learning_material($1) result',[material])).result;
+assert.equal(removed.deleted_chapters,1);
+for (const table of ['learning_materials','document_indexes','document_pages']) {
+ const field = table === 'learning_materials' ? 'id' : 'material_id';
+ assert.equal((await one(`select count(*)::int n from ${table} where ${field}=$1`,[material])).n,0);
+}
+assert.equal((await one('select count(*)::int n from chapters where id=$1',[cid])).n,0);
+assert.equal((await one('select count(*)::int n from topics where chapter_id=$1',[cid])).n,0);
+assert.equal((await one('select count(*)::int n from books where id=$1',[bid])).n,0);
+assert.equal((await one("select chapter_id from learning_contents where title='Saved lesson'")).chapter_id,null);
+await assert.rejects(()=>checkpoint(lease,{pages:[{page_number:1,text:'late result',origin:'text'}]}));
+assert.equal((await one('select count(*)::int n from subjects where id=$1',[s])).n,1);
 await one("select delete_student_data($1,'Learner')",[student]);
 assert.equal((await one('select count(*)::int n from document_indexes')).n,0,'Student deletion removes index artifacts');
 assert.equal((await one('select count(*)::int n from document_pages')).n,0);

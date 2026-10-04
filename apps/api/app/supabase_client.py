@@ -74,6 +74,17 @@ async def storage_download(
     return response.content
 
 
+async def storage_remove(bucket: str, object_path: str, access_token: str) -> None:
+    """Remove the actual blob through Storage, retaining RLS authorization."""
+    settings = get_settings()
+    url = f"{settings.supabase_url.rstrip('/')}/storage/v1/object/{quote(bucket, safe='')}"
+    async with httpx.AsyncClient(timeout=90) as client:
+        response = await client.request(
+            "DELETE", url, headers=_headers(access_token), json={"prefixes": [object_path]}
+        )
+    response.raise_for_status()
+
+
 async def storage_remove_student(prefix: str, access_token: str) -> None:
     """Include unregistered uploads, paginate every folder, use Storage API for blob cleanup."""
     settings = get_settings()
