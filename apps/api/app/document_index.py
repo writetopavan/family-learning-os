@@ -9,6 +9,7 @@ from threading import Lock
 PDFIUM_LOCK = Lock()
 MAX_PAGES = 1000
 MAX_PAGE_CHARS = 40000
+SKIPPED_PAGE_TEXT = "[Page skipped: no extractable text; OCR is disabled.]"
 
 
 def flatten(nodes):
@@ -122,21 +123,13 @@ def parse_pdf(content):
                     text = textpage.get_text_range().replace("\r\n", "\n")
                 finally:
                     textpage.close()
-                # Inspect object types only; never decode image streams to detect scans.
-                has_image = False
-                if len(text.strip()) < 30:
-                    has_image = any(
-                        obj.type == pdfium.raw.FPDF_PAGEOBJ_IMAGE for obj in page.get_objects()
-                    )
-                if has_image:
-                    raise ValueError(
-                        f"PDF page {number} requires OCR. Scanned pages are not supported; upload a PDF with selectable text."
-                    )
+                # Retain short captions on mixed pages; do not inspect/render images.
+                # Every textless page keeps a marker and its original PDF page number.
                 pages.append(
                     {
                         "page_number": number,
-                        "text": text,
-                        "origin": "pending" if has_image else "text" if text.strip() else "blank",
+                        "text": text if text.strip() else SKIPPED_PAGE_TEXT,
+                        "origin": "text" if text.strip() else "blank",
                     }
                 )
                 for match in re.finditer(r"(?m)^\s*(\d{1,3}\.\d{1,3})[ \t]+([^\n]{3,150})", text):
@@ -154,7 +147,7 @@ def parse_pdf(content):
     for i, node in enumerate(headings[:-1]):
         node["end_index"] = max(node["start_index"], headings[i + 1]["start_index"] - 1)
     tree, verified = reconcile_contents(headings, pages)
-    if not any(p["text"].strip() for p in pages):
+    if not any(p["origin"] == "text" for p in pages):
         raise ValueError(
             "This PDF contains no extractable text. Upload a PDF with selectable text; OCR is disabled."
         )

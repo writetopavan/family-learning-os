@@ -134,8 +134,8 @@ def test_stale_source_link_is_rejected(monkeypatch):
     assert error.value.status_code == 409
 
 
-def test_legacy_ocr_job_never_calls_model_or_downloads(monkeypatch):
-    monkeypatch.setattr(documents, "row", AsyncMock(return_value={}))
+def test_legacy_ocr_job_reparses_without_model(monkeypatch):
+    monkeypatch.setattr(documents, "row", AsyncMock(return_value={"storage_path": "safe.pdf"}))
     calls = []
 
     async def rpc(name, token, body):
@@ -143,22 +143,23 @@ def test_legacy_ocr_job_never_calls_model_or_downloads(monkeypatch):
         return (
             {"stage": "ocr", "lease_id": ID}
             if name == "claim_document_index"
-            else {"status": "failed"}
+            else {"status": "queued"}
         )
 
     monkeypatch.setattr(documents, "rpc", rpc)
-    download = AsyncMock()
     ai = AsyncMock()
-    monkeypatch.setattr(documents, "storage_download", download)
+    monkeypatch.setattr(documents, "storage_download", AsyncMock(return_value=mixed_pdf()))
     monkeypatch.setattr(rag_service.openai_service, "respond", ai)
     monkeypatch.setattr(documents, "page_rows", AsyncMock(return_value=[{"page_number": 1}]))
     asyncio.run(documents.advance(ID, "token", USER))
-    assert "OCR is disabled" in calls[-1][1]["payload"]["error_message"]
-    download.assert_not_called()
+    payload = calls[-1][1]["payload"]
+    assert payload["page_count"] == 2
+    assert payload["pages"][0]["origin"] == "blank"
+    assert "error_message" not in payload
     ai.assert_not_called()
 
 
-def digital_pdf(count=1):
+def digital_pdf(count=1, text="Selectable textbook text for testing."):
     from pypdf.generic import DictionaryObject, NameObject, DecodedStreamObject
 
     pdf = PdfWriter()
@@ -175,7 +176,7 @@ def digital_pdf(count=1):
             {NameObject("/Font"): DictionaryObject({NameObject("/F1"): pdf._add_object(font)})}
         )
         stream = DecodedStreamObject()
-        stream.set_data(b"BT /F1 12 Tf 10 100 Td (Selectable textbook text for testing.) Tj ET")
+        stream.set_data(b"BT /F1 12 Tf 10 100 Td (" + text.encode() + b") Tj ET")
         page[NameObject("/Contents")] = pdf._add_object(stream)
     output = BytesIO()
     pdf.write(output)
@@ -233,7 +234,7 @@ def test_scanned_pdf_is_rejected():
 
     output = BytesIO()
     Image.new("RGB", (200, 200), "white").save(output, format="PDF")
-    with pytest.raises(ValueError, match="requires OCR"):
+    with pytest.raises(ValueError, match="no extractable text"):
         parse_pdf(output.getvalue())
 
 
@@ -268,3 +269,46 @@ def test_busy_index_does_not_download_or_claim(monkeypatch):
     assert asyncio.run(run()) == {"status": "queued"}
     claim.assert_not_called()
     download.assert_not_called()
+
+
+def mixed_pdf(caption=False):
+    from PIL import Image
+    from pypdf import PdfReader
+
+    out = BytesIO()
+    Image.new("RGB", (200, 200), "white").save(out, format="PDF")
+    writer = PdfWriter()
+    writer.append(BytesIO(out.getvalue()))
+    if caption:
+        writer.pages[0].merge_page(PdfReader(BytesIO(digital_pdf(text="Fig. 1"))).pages[0])
+    else:
+        writer.append(BytesIO(digital_pdf()))
+    output = BytesIO()
+    writer.write(output)
+    return output.getvalue()
+
+
+def test_image_cover_skipped_without_renumbering():
+    from app.document_index import SKIPPED_PAGE_TEXT
+
+    result = parse_pdf(mixed_pdf())
+    assert result["page_count"] == 2
+    assert [p["page_number"] for p in result["pages"]] == [1, 2]
+    assert result["pages"][0] == {"page_number": 1, "origin": "blank", "text": SKIPPED_PAGE_TEXT}
+    assert "Selectable" in result["pages"][1]["text"]
+    assert all(p["origin"] != "pending" for p in result["pages"])
+
+
+def test_mixed_page_preserves_short_caption():
+    result = parse_pdf(mixed_pdf(caption=True))
+    assert result["page_count"] == 1
+    assert result["pages"][0]["origin"] == "text"
+    assert "Fig. 1" in result["pages"][0]["text"]
+
+
+def test_skipped_page_notice_persists_in_index_response(monkeypatch):
+    read = AsyncMock(return_value=[{"page_number": 1}, {"page_number": 3}])
+    monkeypatch.setattr(documents, "rest_request", read)
+    result = asyncio.run(documents.index_warnings({"status": "ready", "material_id": ID}, "token"))
+    assert result["skipped_pages"] == [1, 3]
+    assert read.call_args.kwargs["params"]["material_id"] == f"eq.{ID}"
