@@ -248,6 +248,7 @@ test("edit subject saves and blocked delete shows explanation", async ({
     if (route.request().method() === "PATCH") {
       expect(route.request().postDataJSON()).toEqual({
         name: "Natural Science",
+        language_level: null,
       });
       return route.fulfill({ json: { ...subject, name: "Natural Science" } });
     }
@@ -305,4 +306,83 @@ test("chat threads reload and generated lessons retain selected curriculum", asy
   await expect(
     page.getByRole("button", { name: /How plants grow/ }),
   ).toBeVisible();
+});
+
+test("onboarding suggests editable subjects and permits a name-only profile", async ({
+  page,
+  context,
+}) => {
+  await setup(page, context);
+  await page
+    .getByRole("button", { name: "Setup", exact: false })
+    .first()
+    .click();
+  await page.getByLabel("Child name", { exact: true }).fill("New child");
+  await page.getByLabel("Board", { exact: true }).selectOption("CBSE");
+  await page.getByLabel("Class", { exact: true }).selectOption("4");
+  await expect(page.getByLabel("Subject 2", { exact: true })).toHaveValue(
+    "Mathematics",
+  );
+  await page
+    .getByRole("button", { name: "Add subject or language", exact: true })
+    .click();
+  await page.getByLabel("Subject 5", { exact: true }).fill("Hindi");
+  await page.getByLabel("Language level 5", { exact: true }).selectOption("2");
+  let body: Record<string, any> = {};
+  await page.route("**/v1/students", async (route) => {
+    body = route.request().postDataJSON();
+    await route.fulfill({ json: { id: "new" } });
+  });
+  await page.getByRole("button", { name: "Add child", exact: true }).click();
+  await expect(page.getByLabel("Child name", { exact: true })).toHaveValue("");
+  expect(body.board).toBe("CBSE");
+  expect(body.academic_year.grade_level).toBe(4);
+  expect(body.subjects).toContainEqual({ name: "Hindi", language_level: 2 });
+  await page.getByLabel("Child name", { exact: true }).fill("Name only");
+  await page.getByRole("button", { name: "Add child", exact: true }).click();
+  await expect(page.getByLabel("Child name", { exact: true })).toHaveValue("");
+  expect(body.academic_year).toBeNull();
+  expect(body.subjects).toEqual([]);
+});
+
+test("student deletion requires name confirmation and reloads child selection", async ({
+  page,
+  context,
+}) => {
+  await setup(page, context);
+  await page
+    .getByRole("button", { name: "Setup", exact: false })
+    .first()
+    .click();
+  await page
+    .getByRole("button", { name: "Delete student and data", exact: true })
+    .first()
+    .click();
+  const form = page.getByRole("form", { name: "Confirm student deletion" });
+  const button = form.getByRole("button", {
+    name: "Permanently delete student",
+  });
+  await expect(button).toBeDisabled();
+  await form.getByRole("button", { name: "Cancel", exact: true }).click();
+  await expect(form).toHaveCount(0);
+  await page
+    .getByRole("button", { name: "Delete student and data", exact: true })
+    .first()
+    .click();
+  await form.getByRole("textbox").fill("Advik");
+  await page.route("**/v1/students/advik", async (route) => {
+    expect(route.request().method()).toBe("DELETE");
+    expect(route.request().postDataJSON()).toEqual({ confirm_name: "Advik" });
+    await route.fulfill({ json: { deleted: "advik" } });
+  });
+  await page.route("**/v1/families/family-a/students", (route) =>
+    route.fulfill({ json: [students[1]] }),
+  );
+  await button.click();
+  await expect(
+    page.getByRole("button", { name: "Shanvi Open learning workspace" }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Advik Open learning workspace" }),
+  ).toHaveCount(0);
 });

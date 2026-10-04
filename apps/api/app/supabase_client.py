@@ -72,3 +72,47 @@ async def storage_download(
         response = await client.get(url, headers=headers)
     response.raise_for_status()
     return response.content
+
+
+async def storage_remove_student(prefix: str, access_token: str) -> None:
+    """Include unregistered uploads, paginate every folder, use Storage API for blob cleanup."""
+    settings = get_settings()
+    base = f"{settings.supabase_url.rstrip('/')}/storage/v1/object"
+    async with httpx.AsyncClient(timeout=90) as client:
+
+        async def files(folder: str):
+            offset = 0
+            found = []
+            while True:
+                response = await client.post(
+                    f"{base}/list/learning-materials",
+                    headers=_headers(access_token),
+                    json={
+                        "prefix": folder,
+                        "limit": 100,
+                        "offset": offset,
+                        "sortBy": {"column": "name", "order": "asc"},
+                    },
+                )
+                response.raise_for_status()
+                rows = response.json()
+                for item in rows:
+                    path = f"{folder}/{item['name']}"
+                    if item.get("id"):
+                        found.append(path)
+                    else:
+                        found.extend(await files(path))
+                if len(rows) < 100:
+                    break
+                offset += len(rows)
+            return found
+
+        paths = await files(prefix)
+        for start in range(0, len(paths), 100):
+            response = await client.request(
+                "DELETE",
+                f"{base}/learning-materials",
+                headers=_headers(access_token),
+                json={"prefixes": paths[start : start + 100]},
+            )
+            response.raise_for_status()

@@ -59,10 +59,10 @@ export default function DashboardPage() {
     return () => { active = false; unsubscribe?.(); };
   }, [router, retry]);
 
-  const loadStudents = useCallback(async () => {
+  const loadStudents = useCallback(async (keepWorkspace = false) => {
     if (!familyId) return;
     const request = ++childrenRequest.current;
-    setChildren((current) => ({ familyId, students: current.familyId === familyId ? current.students : [], error: "", loading: true }));
+    setChildren((current) => ({ familyId, students: current.familyId === familyId ? current.students : [], error: "", loading: !keepWorkspace }));
     try {
       const students = await apiJson<Student[]>(`/v1/families/${familyId}/students`);
       if (request !== childrenRequest.current) return;
@@ -159,7 +159,7 @@ export default function DashboardPage() {
   if (studentId || managingFamily) {
     return <LearningWorkspace key={`${familyId}:${studentId}`} memberships={memberships} familyId={familyId}
       students={students} studentId={studentId} onFamilyChange={changeFamily} onStudentChange={chooseChild}
-      onChooseChild={() => { setStudentId(""); setManagingFamily(false); }} onStudentsChanged={loadStudents} />;
+      onChooseChild={() => { setStudentId(""); setManagingFamily(false); }} onStudentsChanged={() => loadStudents(true)} />;
   }
 
   return <main className="onboarding-shell"><section className="onboarding-card child-chooser">

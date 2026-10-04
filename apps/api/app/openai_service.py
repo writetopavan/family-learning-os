@@ -40,11 +40,24 @@ class OpenAIService:
 
         if response.is_error:
             detail = response.text[:1000]
-            raise OpenAIServiceError(
-                f"OpenAI API returned HTTP {response.status_code}: {detail}"
-            )
+            raise OpenAIServiceError(f"OpenAI API returned HTTP {response.status_code}: {detail}")
 
         return response.json()
+
+    async def delete_resource(self, resource: str, resource_id: str) -> None:
+        from urllib.parse import quote
+
+        if resource not in {"files", "vector_stores", "responses"}:
+            raise ValueError("Unsupported cleanup resource")
+        url = (
+            f"{self.settings.openai_base_url.rstrip('/')}/{resource}/{quote(resource_id, safe='')}"
+        )
+        async with httpx.AsyncClient(timeout=90) as client:
+            response = await client.delete(url, headers=self._headers())
+        if response.status_code == 404:
+            return
+        if response.is_error:
+            raise OpenAIServiceError(f"OpenAI cleanup failed (HTTP {response.status_code})")
 
     async def upload_file(
         self,
@@ -70,8 +83,7 @@ class OpenAIService:
 
         if response.is_error:
             raise OpenAIServiceError(
-                f"OpenAI file upload failed (HTTP {response.status_code}): "
-                f"{response.text[:1000]}"
+                f"OpenAI file upload failed (HTTP {response.status_code}): {response.text[:1000]}"
             )
 
         return str(response.json()["id"])
@@ -134,6 +146,7 @@ class OpenAIService:
     ) -> dict[str, Any]:
         payload: dict[str, Any] = {
             "model": self.settings.openai_model,
+            "store": False,
             "instructions": instructions,
             "input": input_items,
             "reasoning": {"effort": self.settings.openai_reasoning_effort},

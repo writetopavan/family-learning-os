@@ -19,7 +19,7 @@ TABLES = {
 }
 FIELDS = {
     "academic-years": {"label", "grade_level", "start_date", "end_date"},
-    "subjects": {"name"},
+    "subjects": {"name", "language_level"},
     "books": {"title", "publisher", "edition"},
     "chapters": {"title", "sequence"},
 }
@@ -33,6 +33,7 @@ class Edit(BaseModel):
     publisher: str | None = Field(None, max_length=240)
     edition: str | None = Field(None, max_length=120)
     grade_level: int | None = Field(None, ge=4, le=10)
+    language_level: int | None = Field(None, ge=1, le=3)
     sequence: int | None = Field(None, gt=0)
     start_date: date | None = None
     end_date: date | None = None
@@ -71,7 +72,10 @@ async def edit(
     if (
         not values
         or set(values) - FIELDS[resource]
-        or any(v is None and k not in {"publisher", "edition"} for k, v in values.items())
+        or any(
+            v is None and k not in {"publisher", "edition", "language_level"}
+            for k, v in values.items()
+        )
     ):
         raise HTTPException(422, "Invalid fields for this item")
     merged = {**item, **values}
