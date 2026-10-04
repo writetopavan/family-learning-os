@@ -2,6 +2,7 @@
 
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import Markdown from "./Markdown";
+import SourceReferences from "./SourceReferences";
 import { apiJson } from "@/lib/api";
 import type {
   Assessment,
@@ -259,6 +260,7 @@ export default function TestsPanel({
             </button>
             <span className="eyebrow">Assessment</span>
             <h2>{active.assessment.title}</h2>
+            <SourceReferences sources={active.assessment.source_references} />
             <p>
               {active.questions.length} questions ·{" "}
               {active.assessment.total_marks} marks ·{" "}
@@ -674,3 +676,4 @@ export default function TestsPanel({
     </section>
   );
 }
+

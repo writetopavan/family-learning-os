@@ -3,6 +3,7 @@ import { FormEvent, useEffect, useRef, useState } from "react";
 import { apiJson } from "@/lib/api";
 import type { ChatMessage, Thread, Assessment } from "@/lib/types";
 import Markdown from "./Markdown";
+import SourceReferences from "./SourceReferences";
 import { uploadStudentFile } from "@/lib/planning";
 import type { Material } from "@/lib/types";
 
@@ -225,6 +226,7 @@ export default function TutorPanel({
                 <small>{m.material_ids.length} document attachment(s)</small>
               )}
               <Markdown>{m.content}</Markdown>
+              {m.role === "assistant" && <SourceReferences sources={m.source_references} />}
             </div>
           </div>
         ))}
@@ -359,3 +361,4 @@ export default function TutorPanel({
     </section>
   );
 }
+

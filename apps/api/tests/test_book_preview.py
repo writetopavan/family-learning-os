@@ -1,5 +1,4 @@
 import asyncio
-import base64
 import os
 import re
 from io import BytesIO
@@ -9,7 +8,7 @@ from unittest.mock import AsyncMock
 import httpx
 import pytest
 from fastapi import HTTPException
-from pypdf import PdfReader, PdfWriter
+from pypdf import PdfWriter
 from test_planning import ID, OTHER, USER
 
 from app.book_preview import book_preview
@@ -22,9 +21,8 @@ def test_scanned_preview_is_capped():
         writer.add_blank_page(width=200, height=200)
     output = BytesIO()
     writer.write(output)
-    result = book_preview(output.getvalue())
-    pdf = base64.b64decode(result["file_data"].split(",", 1)[1])
-    assert len(PdfReader(BytesIO(pdf)).pages) == 20
+    with pytest.raises(ValueError, match="OCR are disabled"):
+        book_preview(output.getvalue())
 
 
 def test_invalid_pdf_has_actionable_error():
