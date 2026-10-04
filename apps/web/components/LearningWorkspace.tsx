@@ -263,6 +263,33 @@ export default function LearningWorkspace({
           </div>
         </header>
 
+        {selectedStudent && (
+            <section className="workspace-panel context-card" aria-label="Current study context">
+              <div>
+                <span className="eyebrow">Current study context</span>
+                <h3>{contextLabel || "Complete academic setup"}</h3>
+              </div>
+              <div className="context-controls">
+                {academicYears.length > 0 && (
+                  <select aria-label="Study academic year" value={academicYearId} onChange={(e) => setAcademicYearId(e.target.value)}>
+                    {academicYears.map((year) => <option key={year.id} value={year.id}>{year.label} · Grade {year.grade_level}</option>)}
+                  </select>
+                )}
+                {subjects.length > 0 && (
+                  <select aria-label="Study subject" value={subjectId} onChange={(e) => setSubjectId(e.target.value)}>
+                    {subjects.map((subject) => <option key={subject.id} value={subject.id}>{subject.name}</option>)}
+                  </select>
+                )}
+                {chapters.length > 0 && (
+                  <select aria-label="Study chapter" value={chapterId} onChange={(e) => setChapterId(e.target.value)}>
+                    {chapters.map((chapter) => <option key={chapter.id} value={chapter.id}>{chapter.sequence}. {chapter.title}</option>)}
+                  </select>
+                )}
+                <button className="text-button" onClick={() => setTab("setup")}>Edit setup →</button>
+              </div>
+            </section>
+        )}
+
         {status && <div className="alert top-alert">{status}</div>}
 
         {!selectedStudent && students.length === 0 && (
@@ -334,30 +361,7 @@ export default function LearningWorkspace({
               </button>
             </section>
 
-            <section className="workspace-panel context-card">
-              <div>
-                <span className="eyebrow">Current study context</span>
-                <h3>{contextLabel || "Complete academic setup"}</h3>
-              </div>
-              <div className="context-controls">
-                {academicYears.length > 0 && (
-                  <select value={academicYearId} onChange={(e) => setAcademicYearId(e.target.value)}>
-                    {academicYears.map((year) => <option key={year.id} value={year.id}>{year.label} · Grade {year.grade_level}</option>)}
-                  </select>
-                )}
-                {subjects.length > 0 && (
-                  <select value={subjectId} onChange={(e) => setSubjectId(e.target.value)}>
-                    {subjects.map((subject) => <option key={subject.id} value={subject.id}>{subject.name}</option>)}
-                  </select>
-                )}
-                {chapters.length > 0 && (
-                  <select value={chapterId} onChange={(e) => setChapterId(e.target.value)}>
-                    {chapters.map((chapter) => <option key={chapter.id} value={chapter.id}>{chapter.sequence}. {chapter.title}</option>)}
-                  </select>
-                )}
-                <button className="text-button" onClick={() => setTab("setup")}>Edit setup →</button>
-              </div>
-            </section>
+
           </div>
         )}
 
@@ -376,6 +380,9 @@ export default function LearningWorkspace({
 
         {selectedStudent && tab === "materials" && (
           <MaterialsPanel
+            key={`${studentId}:${academicYearId}:${subjectId}`}
+            subjects={subjects}
+            onSubjectChange={setSubjectId}
             familyId={familyId}
             studentId={studentId}
             academicYearId={academicYearId || undefined}

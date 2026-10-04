@@ -450,7 +450,7 @@ label { display: grid; gap: 7px; font-size: 14px; color: #3f4a60; }
 .quick-card strong { font-size: 14px; }
 .quick-card p { margin: 3px 0 0; font-size: 11px; }
 .quick-card b { color: #a0a8b6; font-size: 22px; }
-.context-card { display: flex; align-items: center; justify-content: space-between; gap: 22px; padding: 20px 24px; }
+.context-card { display: flex; align-items: center; justify-content: space-between; gap: 22px; padding: 20px 24px; margin-bottom: 24px; }
 .context-card h3 { margin: 0; font-size: 16px; }
 .context-controls { display: flex; align-items: center; gap: 8px; }
 .context-controls select { width: auto; max-width: 190px; }

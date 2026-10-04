@@ -6,9 +6,11 @@ import { createSupabaseBrowserClient } from "@/lib/supabase-browser";
 import PlanReview from "./PlanReview";
 import { postJson } from "@/lib/planning";
 import type { Plan } from "@/lib/planning";
-import type { Material } from "@/lib/types";
+import type { Material, Subject } from "@/lib/types";
 
 type Props = {
+  subjects: Subject[];
+  onSubjectChange: (id: string) => void;
   familyId: string;
   studentId: string;
   academicYearId?: string;
@@ -24,6 +26,8 @@ function prettyBytes(bytes: number) {
 }
 
 export default function MaterialsPanel({
+  subjects,
+  onSubjectChange,
   familyId,
   studentId,
   academicYearId,
@@ -42,6 +46,15 @@ export default function MaterialsPanel({
     () => materials.filter((item) => item.status === "ready").length,
     [materials],
   );
+
+  const selectedSubject = subjects.find((subject) => subject.id === subjectId);
+  const detectedSubjects = bookPlan
+    ? [...new Set(bookPlan.books.map((book) => book.subject))]
+    : [];
+  const differentSubject = detectedSubjects.some((name) => name !== selectedSubject?.name);
+  const saveLabel = differentSubject
+    ? `Confirm and save under ${detectedSubjects.join(", ")}`
+    : "Save plan";
 
   async function upload(event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
@@ -81,7 +94,7 @@ export default function MaterialsPanel({
           student_id: studentId,
           academic_year_id: academicYearId || null,
           subject_id: subjectId || null,
-          chapter_id: chapterId || null,
+          chapter_id: textbook ? null : chapterId || null,
           title: file.name.replace(/\.[^.]+$/, ""),
           file_name: file.name,
           storage_path: storagePath,
@@ -107,6 +120,8 @@ export default function MaterialsPanel({
 
   async function extractBook(id: string) {
     setImporting(true);
+    setBookPlan(null);
+    setStatus("Reading the textbook chapters and topics…");
     try {
       const extracted = await postJson<{
         plan: Plan;
@@ -117,11 +132,13 @@ export default function MaterialsPanel({
         academic_year_id: academicYearId || null,
         subject_id: subjectId || null,
         message:
-          "Import this textbook into the selected subject. Extract the complete table of contents as chapters and its topics. Link the book to the attached material.",
+          "Prepare a textbook import for review before saving. Extract the complete table of contents as chapters and its topics. Identify the subject from the textbook. If it clearly belongs to a different existing subject in the selected academic year, propose the book under that subject and explain the difference in your answer; I will confirm using the save button. Do not stop for clarification solely because the selected subject differs. If the subject does not exist, ask me to add it in Setup. Link the book to the attached material.",
         material_ids: [id],
       });
       setBookPlan(extracted.plan);
       setPlanYear(extracted.academic_year_id);
+      setStatus("");
+      await onReload();
     } catch (e) {
       setStatus(e instanceof Error ? e.message : "Book extraction failed");
     } finally {
@@ -138,8 +155,12 @@ export default function MaterialsPanel({
         academic_year_id: planYear,
         plan: bookPlan,
       });
+      const importedSubject = detectedSubjects.length === 1
+        ? subjects.find((subject) => subject.name === detectedSubjects[0])
+        : null;
       setBookPlan(null);
       setStatus("Book, chapters and topics saved in the learning tree.");
+      if (importedSubject) onSubjectChange(importedSubject.id);
       await onReload();
     } catch (e) {
       setStatus(e instanceof Error ? e.message : "Could not save book");
@@ -174,7 +195,7 @@ export default function MaterialsPanel({
         This is a textbook — extract chapters and topics after indexing
       </label>
       {!subjectId && (
-        <p>Select a subject in Overview before importing a textbook.</p>
+        <p>Select a subject in Current study context above before importing a textbook.</p>
       )}
       <label className={`upload-dropzone ${uploading ? "is-busy" : ""}`}>
         <input
@@ -205,8 +226,14 @@ export default function MaterialsPanel({
         </div>
       )}
 
+      {differentSubject && (
+        <div className="alert" role="status">
+          Selected subject: {selectedSubject?.name || "None"}. The textbook belongs to {detectedSubjects.join(", ")}. Confirm below to save the book, chapters and topics under the detected subject and update the PDF link.
+        </div>
+      )}
       {bookPlan && (
         <PlanReview
+          saveLabel={saveLabel}
           plan={bookPlan}
           busy={importing}
           onSave={() => void saveBook()}
