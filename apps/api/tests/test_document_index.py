@@ -17,7 +17,7 @@ from app.document_index import (
     source_context,
     validate_tree,
 )
-from app.routes import documents, learning
+from app.routes import documents
 
 TREE = [
     {
@@ -134,52 +134,58 @@ def test_stale_source_link_is_rejected(monkeypatch):
     assert error.value.status_code == 409
 
 
-def test_ocr_failure_checkpoints_completed_pages(monkeypatch):
-    monkeypatch.setattr(
-        documents,
-        "row",
-        AsyncMock(return_value={"storage_path": "safe.pdf", "family_id": ID, "student_id": ID}),
-    )
+def test_legacy_ocr_job_never_calls_model_or_downloads(monkeypatch):
+    monkeypatch.setattr(documents, "row", AsyncMock(return_value={}))
     calls = []
 
     async def rpc(name, token, body):
         calls.append((name, body))
-        if name == "claim_document_index":
-            return {"stage": "ocr", "lease_id": ID}
-        return {"status": "failed"}
+        return (
+            {"stage": "ocr", "lease_id": ID}
+            if name == "claim_document_index"
+            else {"status": "failed"}
+        )
 
     monkeypatch.setattr(documents, "rpc", rpc)
-    monkeypatch.setattr(documents, "storage_download", AsyncMock(return_value=b"pdf"))
-    monkeypatch.setattr(
-        documents, "page_rows", AsyncMock(return_value=[{"page_number": 1}, {"page_number": 2}])
-    )
-    monkeypatch.setattr(documents, "page_image", lambda *_: "image")
-    ai = AsyncMock(
-        side_effect=[
-            {
-                "output": [
-                    {"type": "message", "content": [{"type": "output_text", "text": "Page one."}]}
-                ]
-            },
-            ValueError("Unreadable page 2"),
-        ]
-    )
-    monkeypatch.setattr(documents.openai_service, "respond", ai)
-    monkeypatch.setattr(learning, "_record_usage", AsyncMock())
-    asyncio.run(documents.advance(OTHER, "token", USER))
-    checkpoint = calls[-1][1]["payload"]
-    assert checkpoint["pages"][0]["page_number"] == 1
-    assert "Unreadable page 2" in checkpoint["error_message"]
+    download = AsyncMock()
+    ai = AsyncMock()
+    monkeypatch.setattr(documents, "storage_download", download)
+    monkeypatch.setattr(rag_service.openai_service, "respond", ai)
+    monkeypatch.setattr(documents, "page_rows", AsyncMock(return_value=[{"page_number": 1}]))
+    asyncio.run(documents.advance(ID, "token", USER))
+    assert "OCR is disabled" in calls[-1][1]["payload"]["error_message"]
+    download.assert_not_called()
+    ai.assert_not_called()
 
 
-def test_pageindex_package_runs_without_an_api_key():
+def digital_pdf(count=1):
+    from pypdf.generic import DictionaryObject, NameObject, DecodedStreamObject
+
     pdf = PdfWriter()
-    pdf.add_blank_page(width=200, height=200)
+    for _ in range(count):
+        page = pdf.add_blank_page(width=200, height=200)
+        font = DictionaryObject(
+            {
+                NameObject("/Type"): NameObject("/Font"),
+                NameObject("/Subtype"): NameObject("/Type1"),
+                NameObject("/BaseFont"): NameObject("/Helvetica"),
+            }
+        )
+        page[NameObject("/Resources")] = DictionaryObject(
+            {NameObject("/Font"): DictionaryObject({NameObject("/F1"): pdf._add_object(font)})}
+        )
+        stream = DecodedStreamObject()
+        stream.set_data(b"BT /F1 12 Tf 10 100 Td (Selectable textbook text for testing.) Tj ET")
+        page[NameObject("/Contents")] = pdf._add_object(stream)
     output = BytesIO()
     pdf.write(output)
-    result = parse_pdf(output.getvalue())
-    assert result["page_count"] == 1
-    assert result["pages"][0]["origin"] == "blank"
+    return output.getvalue()
+
+
+def test_text_pdf_needs_no_model():
+    result = parse_pdf(digital_pdf())
+    assert result["pages"][0]["origin"] == "text"
+    assert "Selectable" in result["pages"][0]["text"]
     validate_tree(result["tree"], 1)
 
 
@@ -222,42 +228,29 @@ def test_selected_chapter_cannot_read_an_attachment_from_another_book(monkeypatc
     assert error.value.status_code == 409
 
 
-def test_ocr_page_render_is_a_bounded_jpeg():
-    import base64
-
+def test_scanned_pdf_is_rejected():
     from PIL import Image
 
-    from app.document_index import page_image
+    output = BytesIO()
+    Image.new("RGB", (200, 200), "white").save(output, format="PDF")
+    with pytest.raises(ValueError, match="requires OCR"):
+        parse_pdf(output.getvalue())
 
+
+def test_empty_pdf_is_rejected():
     pdf = PdfWriter()
-    pdf.add_blank_page(width=1000, height=1600)
+    pdf.add_blank_page(width=200, height=200)
     output = BytesIO()
     pdf.write(output)
-    rendered = page_image(output.getvalue(), 1)
-    assert rendered.startswith("data:image/jpeg;base64,")
-    image = Image.open(BytesIO(base64.b64decode(rendered.split(",", 1)[1])))
-    assert image.format == "JPEG"
-    assert max(image.size) <= 1200
+    with pytest.raises(ValueError, match="no extractable text"):
+        parse_pdf(output.getvalue())
 
 
-def test_large_pdf_skips_layout_parser(monkeypatch):
-    import pageindex.flash
-
-    monkeypatch.setattr(
-        pageindex.flash,
-        "page_index_flash",
-        lambda *a, **k: pytest.fail("Layout parser must not run for large PDFs"),
-    )
-    pdf = PdfWriter()
-    for _ in range(41):
-        pdf.add_blank_page(width=200, height=200)
-    output = BytesIO()
-    pdf.write(output)
-    result = parse_pdf(output.getvalue())
+def test_large_text_pdf_keeps_all_pages():
+    result = parse_pdf(digital_pdf(41))
     assert result["page_count"] == 41
-    assert not result["contents_verified"]
     assert len(result["tree"]) == 41
-    assert all(p["origin"] == "blank" for p in result["pages"])
+    assert not result["contents_verified"]
 
 
 def test_busy_index_does_not_download_or_claim(monkeypatch):

@@ -1,10 +1,8 @@
 """Application-owned PageIndex tree, page text, and bounded retrieval helpers."""
 
-import base64
 import hashlib
 import re
 from collections import Counter
-from io import BytesIO
 from threading import Lock
 
 
@@ -130,6 +128,10 @@ def parse_pdf(content):
                     has_image = any(
                         obj.type == pdfium.raw.FPDF_PAGEOBJ_IMAGE for obj in page.get_objects()
                     )
+                if has_image:
+                    raise ValueError(
+                        f"PDF page {number} requires OCR. Scanned pages are not supported; upload a PDF with selectable text."
+                    )
                 pages.append(
                     {
                         "page_number": number,
@@ -152,31 +154,20 @@ def parse_pdf(content):
     for i, node in enumerate(headings[:-1]):
         node["end_index"] = max(node["start_index"], headings[i + 1]["start_index"] - 1)
     tree, verified = reconcile_contents(headings, pages)
+    if not any(p["text"].strip() for p in pages):
+        raise ValueError(
+            "This PDF contains no extractable text. Upload a PDF with selectable text; OCR is disabled."
+        )
     if not verified:
-        # Preserve Flash's general layout-based hierarchy only for small documents.
-        # Large unverified books keep exact page nodes rather than guessed chapters.
-        if count <= 40:
-            from pageindex.flash import page_index_flash
-
-            with PDFIUM_LOCK:
-                tree = (
-                    page_index_flash(BytesIO(content), summary=False, optimize=False).get(
-                        "structure"
-                    )
-                    or []
-                )
-        else:
-            tree = []
-        if not tree:
-            tree = [
-                {
-                    "node_id": f"page-{p['page_number']}",
-                    "title": f"Page {p['page_number']}",
-                    "start_index": p["page_number"],
-                    "end_index": p["page_number"],
-                }
-                for p in pages
-            ]
+        tree = [
+            {
+                "node_id": f"page-{p['page_number']}",
+                "title": f"Page {p['page_number']}",
+                "start_index": p["page_number"],
+                "end_index": p["page_number"],
+            }
+            for p in pages
+        ]
     validate_tree(tree, count)
     return {
         "tree": tree,
@@ -186,20 +177,6 @@ def parse_pdf(content):
         "content_hash": hashlib.sha256(content).hexdigest(),
         "engine": "pdfium-text-1",
     }
-
-
-def page_image(content, number):
-    import pypdfium2 as pdfium
-
-    with PDFIUM_LOCK, pdfium.PdfDocument(content) as doc:
-        page = doc[number - 1]
-        bitmap = page.render(scale=min(1.5, 1200 / max(page.get_width(), page.get_height())))
-        image = bitmap.to_pil()
-        out = BytesIO()
-        image.convert("RGB").save(out, format="JPEG", quality=80)
-        bitmap.close()
-        page.close()
-    return "data:image/jpeg;base64," + base64.b64encode(out.getvalue()).decode()
 
 
 def words(text):
