@@ -108,7 +108,7 @@ export default function MaterialsPanel({
           ? "Document added. It is ready for the tutor."
           : "Uploaded. Indexing is still in progress.",
       );
-      if (textbook && material.status === "ready")
+      if (textbook)
         await extractBook(material.id);
       await onReload();
     } catch (err) {
@@ -121,12 +121,13 @@ export default function MaterialsPanel({
   async function extractBook(id: string) {
     setImporting(true);
     setBookPlan(null);
-    setStatus("Reading the textbook chapters and topics…");
+    setStatus("Reading the opening pages and table of contents…");
     try {
       const extracted = await postJson<{
         plan: Plan;
         academic_year_id: string | null;
       }>("/v1/planning/interpret", {
+        purpose: "book_preview",
         family_id: familyId,
         student_id: studentId,
         academic_year_id: academicYearId || null,
@@ -192,7 +193,7 @@ export default function MaterialsPanel({
           disabled={uploading || importing || !subjectId}
           onChange={(e) => setTextbook(e.target.checked)}
         />{" "}
-        This is a textbook — extract chapters and topics after indexing
+        This is a textbook — preview chapters after upload
       </label>
       {!subjectId && (
         <p>Select a subject in Current study context above before importing a textbook.</p>
