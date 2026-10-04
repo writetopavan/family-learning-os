@@ -7,7 +7,6 @@ from collections import Counter
 from io import BytesIO
 from threading import Lock
 
-from pypdf import PdfReader
 
 PDFIUM_LOCK = Lock()
 MAX_PAGES = 1000
@@ -102,49 +101,90 @@ def validate_tree(tree, page_count):
 
 
 def parse_pdf(content):
-    from pageindex.flash import page_index_flash
+    """Read text one native page at a time without decoding embedded images.
 
-    reader = PdfReader(BytesIO(content))
-    if reader.is_encrypted and not reader.decrypt(""):
-        raise ValueError("Upload an unlocked PDF.")
-    if not 1 <= len(reader.pages) <= MAX_PAGES:
-        raise ValueError(f"Use a PDF containing 1–{MAX_PAGES} pages.")
+    PDFium releases each page and text handle before advancing. Unlike pypdf's
+    object graph and Flash's layout pass, memory does not retain every image/font.
+    """
+    import pypdfium2 as pdfium
+
     pages = []
-    for number, page in enumerate(reader.pages, 1):
-        text = page.extract_text() or ""
-        if len(text) > MAX_PAGE_CHARS:
-            raise ValueError(f"PDF page {number} is too dense; split the document.")
-        pending = len(text.strip()) < 30 and len(page.images) > 0
-        pages.append(
-            {
-                "page_number": number,
-                "text": text,
-                "origin": "pending" if pending else "text" if text.strip() else "blank",
-            }
-        )
-    # PDFium is not thread safe; serialize native parsing/rendering within each process.
-    with PDFIUM_LOCK:
-        result = page_index_flash(BytesIO(content), summary=False, optimize=False)
-    tree = result.get("structure") or []
-    if not tree:
-        tree = [
-            {
-                "node_id": f"page-{p['page_number']}",
-                "title": f"Page {p['page_number']}",
-                "start_index": p["page_number"],
-                "end_index": p["page_number"],
-            }
-            for p in pages
-        ]
-    tree, verified = reconcile_contents(tree, pages)
-    validate_tree(tree, len(pages))
+    headings = []
+    with PDFIUM_LOCK, pdfium.PdfDocument(content) as doc:
+        count = len(doc)
+        if not 1 <= count <= MAX_PAGES:
+            raise ValueError(f"Use a PDF containing 1–{MAX_PAGES} pages.")
+        for number in range(1, count + 1):
+            page = doc[number - 1]
+            try:
+                textpage = page.get_textpage()
+                try:
+                    if textpage.count_chars() > MAX_PAGE_CHARS:
+                        raise ValueError(f"PDF page {number} is too dense; split the document.")
+                    text = textpage.get_text_range().replace("\r\n", "\n")
+                finally:
+                    textpage.close()
+                # Inspect object types only; never decode image streams to detect scans.
+                has_image = False
+                if len(text.strip()) < 30:
+                    has_image = any(
+                        obj.type == pdfium.raw.FPDF_PAGEOBJ_IMAGE for obj in page.get_objects()
+                    )
+                pages.append(
+                    {
+                        "page_number": number,
+                        "text": text,
+                        "origin": "pending" if has_image else "text" if text.strip() else "blank",
+                    }
+                )
+                for match in re.finditer(r"(?m)^\s*(\d{1,3}\.\d{1,3})[ \t]+([^\n]{3,150})", text):
+                    headings.append(
+                        {
+                            "node_id": f"section-{number}-{match.start()}",
+                            "title": match.group(1) + " " + match.group(2).strip(),
+                            "start_index": number,
+                            "end_index": count,
+                            "nodes": [],
+                        }
+                    )
+            finally:
+                page.close()
+    for i, node in enumerate(headings[:-1]):
+        node["end_index"] = max(node["start_index"], headings[i + 1]["start_index"] - 1)
+    tree, verified = reconcile_contents(headings, pages)
+    if not verified:
+        # Preserve Flash's general layout-based hierarchy only for small documents.
+        # Large unverified books keep exact page nodes rather than guessed chapters.
+        if count <= 40:
+            from pageindex.flash import page_index_flash
+
+            with PDFIUM_LOCK:
+                tree = (
+                    page_index_flash(BytesIO(content), summary=False, optimize=False).get(
+                        "structure"
+                    )
+                    or []
+                )
+        else:
+            tree = []
+        if not tree:
+            tree = [
+                {
+                    "node_id": f"page-{p['page_number']}",
+                    "title": f"Page {p['page_number']}",
+                    "start_index": p["page_number"],
+                    "end_index": p["page_number"],
+                }
+                for p in pages
+            ]
+    validate_tree(tree, count)
     return {
         "tree": tree,
         "pages": pages,
-        "page_count": len(pages),
+        "page_count": count,
         "contents_verified": verified,
         "content_hash": hashlib.sha256(content).hexdigest(),
-        "engine": "pageindex-flash-0.2.10",
+        "engine": "pdfium-text-1",
     }
 
 
