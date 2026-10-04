@@ -857,3 +857,42 @@ button:focus-visible, a:focus-visible { outline: 3px solid #8f82ee; outline-offs
 @media (max-width: 480px) {
   .child-grid { grid-template-columns: 1fr; }
 }
+
+/* Saved learning and structured content */
+.markdown-content { line-height:1.7; overflow-wrap:anywhere; }
+.markdown-content > :first-child { margin-top:0; }
+.markdown-content h1,.markdown-content h2,.markdown-content h3 { margin:1.1em 0 .5em; line-height:1.25; }
+.markdown-content p { margin:.6em 0; }
+.markdown-content ul,.markdown-content ol { padding-left:1.5em; }
+.markdown-content pre { overflow:auto; padding:16px; border-radius:10px; background:#eef0f6; }
+.markdown-content code { background:#eef0f6; padding:2px 4px; border-radius:4px; }
+.markdown-content table { border-collapse:collapse; display:block; overflow:auto; width:100%; }
+.markdown-content td,.markdown-content th { border:1px solid #d8dce7; padding:8px 12px; text-align:left; }
+.markdown-content blockquote { border-left:3px solid #8572df; margin-left:0; padding-left:16px; color:#59617a; }
+.markdown-content .katex-display { overflow:auto; }
+.learning-tree-layout { display:grid; grid-template-columns:260px minmax(0,1fr); gap:20px; align-items:start; }
+.tree-nav { border:1px solid #e2e5ee; padding:18px; background:white; border-radius:18px; position:sticky; top:20px; max-height:85vh; overflow:auto; }
+.tree-nav h2 { font-size:18px; }
+.tree-nav details { margin:10px 0 10px 10px; }
+.tree-nav summary { cursor:pointer; font-weight:600; padding:5px 0; }
+.tree-item { text-align:left; width:100%; border:0; background:transparent; padding:10px; border-radius:8px; cursor:pointer; }
+.tree-item.active { background:#eee9ff; color:#5541a6; }
+.tree-item small { display:block; color:#71768a; margin-top:4px; }
+.tree-main { min-width:0; display:grid; gap:16px; }
+.tree-tabs,.thread-controls,.attempt-history { display:flex; gap:12px; align-items:center; flex-wrap:wrap; margin:14px 0; }
+.thread-controls label { display:grid; gap:6px; flex:1; }
+.saved-content-grid { display:grid; gap:12px; }
+.saved-test { border:1px solid #e2e5ee; border-radius:12px; padding:8px; }
+.saved-test .assessment-card { width:100%; }
+.edit-row { display:flex; gap:8px; align-items:center; padding:6px 0; border-bottom:1px solid #eef0f6; }
+.edit-row span { flex:1; }
+.editor-form { padding:14px; background:#f5f3ff; border-radius:10px; }
+.editor-form label { display:grid; gap:6px; }
+.chapter-picker,.blueprint-editor { grid-column:1/-1; width:100%; border:1px solid #e2e5ee; border-radius:10px; padding:14px; }
+.chapter-picker label { display:inline-flex; align-items:center; margin:8px; gap:6px; }
+.chapter-picker input,.blueprint-editor input[type=checkbox] { width:auto; }
+.blueprint-row { display:grid; grid-template-columns:1.3fr 1fr 90px 90px auto; gap:8px; align-items:end; margin:10px 0; }
+.blueprint-row label { font-size:12px; }
+.blueprint-total { font-weight:700; margin:12px 0; }
+.answer-key { background:#f3f0ff; padding:14px; border-radius:10px; margin-top:12px; }
+@media(max-width:1000px) { .learning-tree-layout { grid-template-columns:1fr; } .tree-nav { position:static; max-height:300px; } .blueprint-row { grid-template-columns:1fr 1fr; } }

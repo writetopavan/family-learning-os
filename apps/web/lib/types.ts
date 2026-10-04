@@ -75,6 +75,7 @@ export type Assessment = {
 export type AssessmentQuestion = {
   id: string;
   sequence: number;
+  section_name?: string;
   question_type: "mcq" | "short" | "long";
   prompt: string;
   options: string[];
@@ -102,3 +103,9 @@ export type GradeResult = {
   overall_feedback: string;
   answers: GradedAnswer[];
 };
+
+export type Thread = { id: string; title: string; created_at: string };
+export type Lesson = {id:string; title:string; content:string; academic_year_id:string;subject_id:string;chapter_id:string|null;thread_id:string|null};
+export type Attempt = {id:string;assessment_id:string;score:number;max_score:number;submitted_at:string};
+export type TreeAssessment = Assessment & {academic_year_id:string|null;subject_id:string|null;chapter_id:string|null;chapter_ids:string[]};
+export type LearningTree = {years:AcademicYear[];subjects:Subject[];books:Book[];chapters:Chapter[];lessons:Lesson[];assessments:TreeAssessment[];attempts:Attempt[]};
