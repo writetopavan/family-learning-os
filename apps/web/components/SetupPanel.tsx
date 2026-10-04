@@ -1,6 +1,7 @@
 "use client";
 
 import { FormEvent, useState } from "react";
+import CurriculumEditor from "./CurriculumEditor";
 import { apiJson } from "@/lib/api";
 import type { AcademicYear, Book, Chapter, Student, Subject } from "@/lib/types";
 
@@ -201,6 +202,7 @@ export default function SetupPanel({
               ))}
             </select>
           )}
+          <CurriculumEditor resource="academic-years" items={academicYears} onReload={onAcademicYearsChanged} />
           <form className="mini-form two-col" onSubmit={addYear}>
             <input value={yearLabel} onChange={(e) => setYearLabel(e.target.value)} placeholder="2026-27" required />
             <select value={gradeLevel} onChange={(e) => setGradeLevel(e.target.value)}>
@@ -219,6 +221,7 @@ export default function SetupPanel({
               {subjects.map((subject) => <option key={subject.id} value={subject.id}>{subject.name}</option>)}
             </select>
           )}
+          <CurriculumEditor resource="subjects" items={subjects} onReload={onSubjectsChanged} />
           <form className="mini-form" onSubmit={addSubject}>
             <input value={subjectName} onChange={(e) => setSubjectName(e.target.value)} placeholder="e.g. Science" required />
             <button disabled={busy || !selectedAcademicYearId} className="secondary-button" type="submit">Add subject</button>
@@ -232,6 +235,7 @@ export default function SetupPanel({
               {books.map((book) => <option key={book.id} value={book.id}>{book.title}</option>)}
             </select>
           )}
+          <CurriculumEditor resource="books" items={books} onReload={onBooksChanged} />
           <form className="mini-form" onSubmit={addBook}>
             <input value={bookTitle} onChange={(e) => setBookTitle(e.target.value)} placeholder="Book title" required />
             <input value={publisher} onChange={(e) => setPublisher(e.target.value)} placeholder="Publisher (optional)" />
@@ -246,6 +250,7 @@ export default function SetupPanel({
               {chapters.map((chapter) => <span key={chapter.id}>{chapter.sequence}. {chapter.title}</span>)}
             </div>
           )}
+          <CurriculumEditor resource="chapters" items={chapters} onReload={onChaptersChanged} />
           <form className="mini-form chapter-form" onSubmit={addChapter}>
             <input type="number" min="1" value={chapterSequence} onChange={(e) => setChapterSequence(e.target.value)} />
             <input value={chapterTitle} onChange={(e) => setChapterTitle(e.target.value)} placeholder="Chapter title" required />

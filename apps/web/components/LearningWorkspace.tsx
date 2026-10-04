@@ -1,10 +1,12 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import dynamic from "next/dynamic";
+const LearningTreePanel = dynamic(() => import("./LearningTreePanel"));
 import MaterialsPanel from "@/components/MaterialsPanel";
 import SetupPanel from "@/components/SetupPanel";
-import TestsPanel from "@/components/TestsPanel";
-import TutorPanel from "@/components/TutorPanel";
+const TestsPanel = dynamic(() => import("./TestsPanel"));
+const TutorPanel = dynamic(() => import("./TutorPanel"));
 import { apiJson } from "@/lib/api";
 import { createSupabaseBrowserClient } from "@/lib/supabase-browser";
 import type {
@@ -17,10 +19,11 @@ import type {
   Subject,
 } from "@/lib/types";
 
-type Tab = "home" | "tutor" | "materials" | "tests" | "setup";
+type Tab = "tree" | "home" | "tutor" | "materials" | "tests" | "setup";
 
 const NAV: Array<{ id: Tab; label: string; icon: string }> = [
   { id: "home", label: "Overview", icon: "⌂" },
+  { id: "tree", label: "Learning tree", icon: "▥" },
   { id: "tutor", label: "AI Tutor", icon: "✦" },
   { id: "materials", label: "Library", icon: "▤" },
   { id: "tests", label: "Tests", icon: "✓" },
@@ -229,6 +232,7 @@ export default function LearningWorkspace({
             <span className="eyebrow">Learning workspace</span>
             <h1>
               {tab === "home" && "Good to see you"}
+              {tab === "tree" && "Learning tree"}
               {tab === "tutor" && "AI Tutor"}
               {tab === "materials" && "Learning Library"}
               {tab === "tests" && "Tests & Practice"}
@@ -351,8 +355,13 @@ export default function LearningWorkspace({
           </div>
         )}
 
+        {selectedStudent && tab === "tree" && <LearningTreePanel key={studentId} familyId={familyId} studentId={studentId} studentName={selectedStudent.display_name}/>}
         {selectedStudent && tab === "tutor" && (
           <TutorPanel
+            key={studentId}
+            academicYearId={academicYearId || undefined}
+            subjectId={subjectId || undefined}
+            chapterId={chapterId || undefined}
             familyId={familyId}
             studentId={studentId}
             studentName={selectedStudent.display_name}
@@ -373,6 +382,7 @@ export default function LearningWorkspace({
 
         {selectedStudent && tab === "tests" && (
           <TestsPanel
+            key={studentId}
             familyId={familyId}
             studentId={studentId}
             studentName={selectedStudent.display_name}

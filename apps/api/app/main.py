@@ -2,8 +2,10 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from .config import get_settings
+from .routes.curriculum import router as curriculum_router
 from .routes.families import router as family_router
 from .routes.learning import router as learning_router
+from .routes.workspace import router as workspace_router
 
 settings = get_settings()
 
@@ -22,6 +24,8 @@ app.add_middleware(
 
 app.include_router(family_router)
 app.include_router(learning_router)
+app.include_router(curriculum_router)
+app.include_router(workspace_router)
 
 
 @app.get("/health")

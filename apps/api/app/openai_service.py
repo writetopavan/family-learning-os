@@ -127,6 +127,7 @@ class OpenAIService:
         input_items: str | list[dict[str, Any]],
         instructions: str,
         vector_store_id: str | None = None,
+        filters: dict[str, Any] | None = None,
         schema_name: str | None = None,
         schema: dict[str, Any] | None = None,
         max_output_tokens: int = 4000,
@@ -147,6 +148,9 @@ class OpenAIService:
                     "max_num_results": 8,
                 }
             ]
+
+        if vector_store_id and filters:
+            payload["tools"][0]["filters"] = filters
 
         if schema is not None:
             payload["text"] = {

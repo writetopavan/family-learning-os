@@ -1,150 +1,287 @@
 "use client";
-
 import { FormEvent, useEffect, useRef, useState } from "react";
 import { apiJson } from "@/lib/api";
-import type { ChatMessage } from "@/lib/types";
+import type { ChatMessage, Thread, Assessment } from "@/lib/types";
+import Markdown from "./Markdown";
 
 type Props = {
   familyId: string;
   studentId: string;
   studentName: string;
+  academicYearId?: string;
+  subjectId?: string;
+  chapterId?: string;
+  onSaved?: () => void;
+  onOpenTest?: (id: string) => void;
 };
-
-export default function TutorPanel({ familyId, studentId, studentName }: Props) {
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
-  const [message, setMessage] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState("");
-  const bottomRef = useRef<HTMLDivElement | null>(null);
-
-  async function loadHistory() {
-    if (!studentId) return;
-    try {
-      const data = await apiJson<ChatMessage[]>(`/v1/students/${studentId}/chat`);
-      setMessages(data);
-      setError("");
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not load chat.");
-    }
-  }
-
+export default function TutorPanel({
+  familyId,
+  studentId,
+  studentName,
+  academicYearId,
+  subjectId,
+  chapterId,
+  onSaved,
+  onOpenTest,
+}: Props) {
+  const [threads, setThreads] = useState<Thread[]>([]),
+    [threadId, setThreadId] = useState("");
+  const [messages, setMessages] = useState<ChatMessage[]>([]),
+    [message, setMessage] = useState("");
+  const [mode, setMode] = useState("chat"),
+    [busy, setBusy] = useState(false),
+    [error, setError] = useState("");
+  const [savedTest, setSavedTest] = useState("");
+  const bottom = useRef<HTMLDivElement>(null);
   useEffect(() => {
-    void loadHistory();
+    let active = true;
+    apiJson<Thread[]>(`/v1/students/${studentId}/threads`)
+      .then((data) => {
+        if (active) {
+          setThreads(data);
+          setThreadId(data[0]?.id || "");
+        }
+      })
+      .catch((e) => {
+        if (active) setError(e.message);
+      });
+    return () => {
+      active = false;
+    };
   }, [studentId]);
-
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+    let active = true;
+    setMessages([]);
+    if (threadId)
+      apiJson<ChatMessage[]>(
+        `/v1/students/${studentId}/chat?thread_id=${threadId}`,
+      )
+        .then((data) => {
+          if (active) setMessages(data);
+        })
+        .catch((e) => {
+          if (active) setError(e.message);
+        });
+    return () => {
+      active = false;
+    };
+  }, [studentId, threadId]);
+  useEffect(() => {
+    bottom.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, busy]);
-
-  async function send(event: FormEvent) {
-    event.preventDefault();
+  async function newThread(title = "New conversation") {
+    const t = await apiJson<Thread>("/v1/threads", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        family_id: familyId,
+        student_id: studentId,
+        title,
+      }),
+    });
+    setThreads((current) => [t, ...current]);
+    setThreadId(t.id);
+    setMessages([]);
+    setSavedTest("");
+    return t.id;
+  }
+  async function send(e: FormEvent) {
+    e.preventDefault();
     const text = message.trim();
     if (!text || busy) return;
-
-    const optimistic: ChatMessage = {
-      id: `local-${Date.now()}`,
-      role: "user",
-      content: text,
-      created_at: new Date().toISOString(),
-    };
-
-    setMessages((current) => [...current, optimistic]);
-    setMessage("");
     setBusy(true);
     setError("");
-
+    setSavedTest("");
     try {
-      const reply = await apiJson<ChatMessage>("/v1/chat", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          family_id: familyId,
-          student_id: studentId,
-          message: text,
-        }),
-      });
-      setMessages((current) => [
-        ...current.filter((item) => item.id !== optimistic.id),
-        optimistic,
-        reply,
-      ]);
-    } catch (err) {
-      setMessages((current) => current.filter((item) => item.id !== optimistic.id));
-      setMessage(text);
-      setError(err instanceof Error ? err.message : "Tutor request failed.");
+      const id = threadId || (await newThread(text.slice(0, 80)));
+      const payload = {
+        family_id: familyId,
+        student_id: studentId,
+        thread_id: id,
+        academic_year_id: academicYearId || null,
+        subject_id: subjectId || null,
+      };
+      if (mode === "lesson") {
+        await apiJson("/v1/lessons/generate", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            ...payload,
+            chapter_id: chapterId || null,
+            title: text.slice(0, 180),
+            message: text,
+          }),
+        });
+        onSaved?.();
+      } else if (mode === "test") {
+        const test = await apiJson<Assessment>("/v1/assessments/generate", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            ...payload,
+            chapter_ids: chapterId ? [chapterId] : [],
+            title: text.slice(0, 180),
+            question_count: 10,
+            difficulty: "mixed",
+          }),
+        });
+        setSavedTest(test.id);
+        onSaved?.();
+      } else {
+        await apiJson("/v1/chat", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            ...payload,
+            chapter_ids: chapterId ? [chapterId] : [],
+            message: text,
+          }),
+        });
+      }
+      setMessage("");
+      setMessages(
+        await apiJson<ChatMessage[]>(
+          `/v1/students/${studentId}/chat?thread_id=${id}`,
+        ),
+      );
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Request failed");
     } finally {
       setBusy(false);
     }
   }
-
-  const suggestions = [
-    "Explain the hardest idea in my uploaded chapter.",
-    "Quiz me with 5 quick questions.",
-    "Give me an example and then let me try one.",
-  ];
-
   return (
     <section className="workspace-panel tutor-panel">
       <div className="panel-heading">
         <div>
           <span className="eyebrow">AI tutor</span>
           <h2>Study with {studentName}</h2>
-          <p>Answers use uploaded school material first, then general knowledge when needed.</p>
+          <p>
+            Chat freely, or create a lesson or test saved in your learning tree.
+          </p>
         </div>
-        <div className="ai-badge"><span className="pulse-dot" /> Document-aware</div>
       </div>
-
+      <div className="thread-controls">
+        <label>
+          Conversation
+          <select
+            aria-label="Conversation"
+            value={threadId}
+            disabled={busy}
+            onChange={(e) => {
+              setThreadId(e.target.value);
+              setSavedTest("");
+            }}
+          >
+            <option value="">New conversation</option>
+            {threads.map((t) => (
+              <option value={t.id} key={t.id}>
+                {t.title}
+              </option>
+            ))}
+          </select>
+        </label>
+        <button
+          className="secondary-button"
+          disabled={busy}
+          onClick={() => {
+            setThreadId("");
+            setMessages([]);
+            setSavedTest("");
+          }}
+        >
+          New thread
+        </button>
+      </div>
       <div className="chat-window">
-        {messages.length === 0 && (
+        {!messages.length && (
           <div className="chat-empty">
-            <div className="assistant-orb">✦</div>
             <h3>What should we learn today?</h3>
-            <p>Upload a chapter or worksheet, then ask questions in natural language.</p>
-            <div className="suggestion-grid">
-              {suggestions.map((item) => (
-                <button key={item} className="suggestion-card" onClick={() => setMessage(item)}>
-                  {item}
-                </button>
-              ))}
-            </div>
+            <p>
+              Select a subject or chapter to file generated learning content
+              automatically.
+            </p>
           </div>
         )}
-
-        {messages.map((item) => (
-          <div key={item.id} className={`message-row ${item.role}`}>
-            <div className="message-avatar">{item.role === "assistant" ? "✦" : "You"}</div>
+        {messages.map((m) => (
+          <div className={`message-row ${m.role}`} key={m.id}>
             <div className="message-bubble">
-              <div className="message-label">{item.role === "assistant" ? "Tutor" : "You"}</div>
-              <div className="message-text">{item.content}</div>
+              <div className="message-label">
+                {m.role === "assistant" ? "Tutor" : "You"}
+              </div>
+              <Markdown>{m.content}</Markdown>
             </div>
           </div>
         ))}
-
         {busy && (
-          <div className="message-row assistant">
-            <div className="message-avatar">✦</div>
-            <div className="message-bubble thinking">
-              <span />
-              <span />
-              <span />
-            </div>
-          </div>
+          <p role="status">
+            {mode === "chat" ? "Thinking…" : "Generating and saving…"}
+          </p>
         )}
-        <div ref={bottomRef} />
+        <div ref={bottom} />
       </div>
-
-      {error && <div className="alert error">{error}</div>}
-
-      <form onSubmit={send} className="chat-composer">
-        <textarea
-          value={message}
-          onChange={(event) => setMessage(event.target.value)}
-          placeholder="Ask about a concept, homework problem, or uploaded chapter…"
-          rows={2}
-        />
-        <button className="primary-button send-button" type="submit" disabled={busy || !message.trim()}>
-          {busy ? "Thinking…" : "Ask tutor"}
+      {error && (
+        <div className="alert error" role="alert">
+          {error}
+        </div>
+      )}
+      {savedTest && onOpenTest && (
+        <button
+          className="primary-button"
+          onClick={() => onOpenTest(savedTest)}
+        >
+          Open saved test
         </button>
+      )}
+      <form onSubmit={send}>
+        <div className="thread-controls">
+          <label>
+            Content type
+            <select
+              value={mode}
+              onChange={(e) => setMode(e.target.value)}
+              disabled={busy}
+            >
+              <option value="chat">General chat</option>
+              <option value="lesson">Save a lesson / topic</option>
+              <option value="test">Generate a test</option>
+            </select>
+          </label>
+          {mode !== "chat" && (
+            <span>
+              {subjectId
+                ? "Will be filed under the selected subject / chapter"
+                : "Select a subject first"}
+            </span>
+          )}
+        </div>
+        <div className="chat-composer">
+          <textarea
+            aria-label="Message"
+            value={message}
+            onChange={(e) => setMessage(e.target.value)}
+            placeholder={
+              mode === "lesson"
+                ? "Explain this topic with examples…"
+                : mode === "test"
+                  ? "What should this test cover?"
+                  : "Ask the tutor…"
+            }
+            rows={3}
+          />
+          <button
+            className="primary-button"
+            disabled={
+              busy || !message.trim() || (mode !== "chat" && !subjectId)
+            }
+          >
+            {mode === "chat"
+              ? "Send"
+              : mode === "lesson"
+                ? "Generate lesson"
+                : "Generate test"}
+          </button>
+        </div>
       </form>
     </section>
   );

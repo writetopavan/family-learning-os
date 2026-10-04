@@ -36,3 +36,6 @@ htmlcov/
 playwright-report/
 test-results/
 *.tsbuildinfo
+
+*.egg-info/
+supabase/.temp/

@@ -19,7 +19,7 @@ export async function apiFetch(path: string, init?: RequestInit): Promise<Respon
 
   const token = await getAccessToken();
   const controller = new AbortController();
-  const timeout = window.setTimeout(() => controller.abort(), 90000);
+  const timeout = window.setTimeout(() => controller.abort(), 240000);
 
   try {
     return await fetch(`${apiBaseUrl}${path}`, {
@@ -39,13 +39,11 @@ export async function apiJson<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await apiFetch(path, init);
   if (!response.ok) {
     let message = `HTTP ${response.status}`;
+    const text = await response.text();
     try {
-      const body = await response.json();
-      message = body.detail || JSON.stringify(body);
-    } catch {
-      const text = await response.text();
-      if (text) message = text;
-    }
+      const body = JSON.parse(text);
+      message = typeof body.detail === "string" ? body.detail : JSON.stringify(body.detail || body);
+    } catch { if (text) message = text; }
     throw new Error(message);
   }
   return response.json() as Promise<T>;
