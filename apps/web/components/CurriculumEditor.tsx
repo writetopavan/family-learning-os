@@ -16,7 +16,17 @@ const fields: Record<string, Field[]> = {
     { key: "start_date", label: "Start date", type: "date" },
     { key: "end_date", label: "End date", type: "date" },
   ],
-  subjects: [{ key: "name", label: "Subject name" }],
+  subjects: [
+    { key: "name", label: "Subject name" },
+    {
+      key: "language_level",
+      label: "Language level (1, 2 or 3; leave blank for other subjects)",
+      type: "number",
+      min: 1,
+      max: 3,
+      optional: true,
+    },
+  ],
   books: [
     { key: "title", label: "Book title" },
     { key: "publisher", label: "Publisher", optional: true },
@@ -52,7 +62,9 @@ export default function CurriculumEditor({
         fields[resource].map((f) => [
           f.key,
           f.type === "number"
-            ? Number(editing[f.key])
+            ? f.optional && !editing[f.key]
+              ? null
+              : Number(editing[f.key])
             : f.optional
               ? String(editing[f.key] || "").trim() || null
               : String(editing[f.key] || "").trim(),
@@ -93,7 +105,12 @@ export default function CurriculumEditor({
         const item = value as Record<string, unknown>;
         return (
           <div className="edit-row" key={String(item.id)}>
-            <span>{String(item.label || item.name || item.title)}</span>
+            <span>
+              {String(item.label || item.name || item.title)}
+              {resource === "subjects" && item.language_level
+                ? ` · ${["", "First", "Second", "Third"][Number(item.language_level)]} language`
+                : ""}
+            </span>
             <button
               type="button"
               className="text-button"

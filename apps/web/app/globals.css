@@ -896,3 +896,15 @@ button:focus-visible, a:focus-visible { outline: 3px solid #8f82ee; outline-offs
 .blueprint-total { font-weight:700; margin:12px 0; }
 .answer-key { background:#f3f0ff; padding:14px; border-radius:10px; margin-top:12px; }
 @media(max-width:1000px) { .learning-tree-layout { grid-template-columns:1fr; } .tree-nav { position:static; max-height:300px; } .blueprint-row { grid-template-columns:1fr 1fr; } }
+
+.onboarding-fields { border: 0; padding: 0; margin: 0; min-width: 0; display: grid; gap: 18px; }
+.onboarding-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+.onboarding-grid label, .student-manager label { display: grid; gap: 7px; font-size: 13px; }
+.subject-drafts { display: grid; gap: 12px; }
+.subject-drafts p { color: var(--muted); font-size: 13px; }
+.subject-draft { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto; gap: 10px; align-items: center; }
+.student-row { padding: 14px 0; border-bottom: 1px solid #e4e5ef; display: flex; justify-content: space-between; gap: 12px; align-items: center; }
+.student-row small { display: block; margin-top: 5px; }
+.delete-student { border: 1px solid #e8afb6; padding: 18px; border-radius: 12px; margin-top: 15px; }
+.delete-student .primary-button { background: #a8273f; }
+@media (max-width: 640px) { .onboarding-grid, .subject-draft { grid-template-columns: 1fr; } .student-row { align-items: flex-start; flex-direction: column; } }

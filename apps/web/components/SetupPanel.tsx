@@ -1,9 +1,18 @@
 "use client";
 
 import { FormEvent, useState } from "react";
+import StudentOnboarding from "./StudentOnboarding";
+import StudentManager from "./StudentManager";
 import CurriculumEditor from "./CurriculumEditor";
+import { suggestedSubjects } from "@/lib/onboarding";
 import { apiJson } from "@/lib/api";
-import type { AcademicYear, Book, Chapter, Student, Subject } from "@/lib/types";
+import type {
+  AcademicYear,
+  Book,
+  Chapter,
+  Student,
+  Subject,
+} from "@/lib/types";
 
 type Props = {
   familyId: string;
@@ -46,12 +55,11 @@ export default function SetupPanel({
   onBooksChanged,
   onChaptersChanged,
 }: Props) {
-  const [studentName, setStudentName] = useState("");
-  const [studentDob, setStudentDob] = useState("");
   const [yearLabel, setYearLabel] = useState("2026-27");
   const [gradeLevel, setGradeLevel] = useState("4");
   const [startDate, setStartDate] = useState("2026-04-01");
   const [endDate, setEndDate] = useState("2027-03-31");
+  const [languageLevel, setLanguageLevel] = useState("");
   const [subjectName, setSubjectName] = useState("");
   const [bookTitle, setBookTitle] = useState("");
   const [publisher, setPublisher] = useState("");
@@ -59,6 +67,27 @@ export default function SetupPanel({
   const [chapterSequence, setChapterSequence] = useState("1");
   const [status, setStatus] = useState("");
   const [busy, setBusy] = useState(false);
+  const currentStudent = students.find((s) => s.id === studentId);
+  const currentYear = academicYears.find(
+    (y) => y.id === selectedAcademicYearId,
+  );
+  const suggestions = suggestedSubjects(
+    currentStudent?.board || "",
+    currentYear?.grade_level || null,
+  );
+  async function addSuggestions() {
+    await run(async () => {
+      await apiJson(
+        `/v1/academic-years/${selectedAcademicYearId}/subjects/suggestions`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ subjects: suggestions }),
+        },
+      );
+      await onSubjectsChanged();
+    }, "Missing suggested subjects added. You can edit or remove them below.");
+  }
 
   async function run(action: () => Promise<void>, success: string) {
     setBusy(true);
@@ -71,25 +100,6 @@ export default function SetupPanel({
     } finally {
       setBusy(false);
     }
-  }
-
-  async function addStudent(event: FormEvent) {
-    event.preventDefault();
-    if (!studentName.trim()) return;
-    await run(async () => {
-      await apiJson("/v1/students", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          family_id: familyId,
-          display_name: studentName.trim(),
-          date_of_birth: studentDob || null,
-        }),
-      });
-      setStudentName("");
-      setStudentDob("");
-      await onStudentsChanged();
-    }, "Child profile added.");
   }
 
   async function addYear(event: FormEvent) {
@@ -123,9 +133,11 @@ export default function SetupPanel({
           family_id: familyId,
           academic_year_id: selectedAcademicYearId,
           name: subjectName.trim(),
+          language_level: languageLevel ? Number(languageLevel) : null,
         }),
       });
       setSubjectName("");
+      setLanguageLevel("");
       await onSubjectsChanged();
     }, "Subject added.");
   }
@@ -177,84 +189,234 @@ export default function SetupPanel({
         <div>
           <span className="eyebrow">Curriculum setup</span>
           <h2>Build the learning structure</h2>
-          <p>Student → academic year → subject → book → chapter. This becomes the spine for tracking mastery.</p>
+          <p>
+            Student → academic year → subject → book → chapter. This becomes the
+            spine for tracking mastery.
+          </p>
         </div>
       </div>
 
       {status && <div className="alert">{status}</div>}
 
       <div className="setup-grid">
-        <article className="setup-card">
-          <div className="setup-step"><span>1</span><div><strong>Children</strong><p>{students.length} profiles</p></div></div>
-          <form className="mini-form" onSubmit={addStudent}>
-            <input value={studentName} onChange={(e) => setStudentName(e.target.value)} placeholder="Child name" required />
-            <input type="date" value={studentDob} onChange={(e) => setStudentDob(e.target.value)} />
-            <button disabled={busy} className="secondary-button" type="submit">Add child</button>
-          </form>
-        </article>
+        <StudentOnboarding familyId={familyId} onSaved={onStudentsChanged} />
+        <StudentManager students={students} onReload={onStudentsChanged} />
 
         <article className="setup-card">
-          <div className="setup-step"><span>2</span><div><strong>Academic year</strong><p>{academicYears.length} configured</p></div></div>
+          <div className="setup-step">
+            <span>2</span>
+            <div>
+              <strong>Academic year</strong>
+              <p>{academicYears.length} configured</p>
+            </div>
+          </div>
           {academicYears.length > 0 && (
-            <select value={selectedAcademicYearId} onChange={(e) => onAcademicYearChange(e.target.value)}>
+            <select
+              value={selectedAcademicYearId}
+              onChange={(e) => onAcademicYearChange(e.target.value)}
+            >
               {academicYears.map((year) => (
-                <option key={year.id} value={year.id}>{year.label} · Grade {year.grade_level}</option>
+                <option key={year.id} value={year.id}>
+                  {year.label} · Grade {year.grade_level}
+                </option>
               ))}
             </select>
           )}
-          <CurriculumEditor resource="academic-years" items={academicYears} onReload={onAcademicYearsChanged} />
+          <CurriculumEditor
+            resource="academic-years"
+            items={academicYears}
+            onReload={onAcademicYearsChanged}
+          />
           <form className="mini-form two-col" onSubmit={addYear}>
-            <input value={yearLabel} onChange={(e) => setYearLabel(e.target.value)} placeholder="2026-27" required />
-            <select value={gradeLevel} onChange={(e) => setGradeLevel(e.target.value)}>
-              {[4,5,6,7,8,9,10].map((grade) => <option key={grade} value={grade}>Grade {grade}</option>)}
+            <input
+              value={yearLabel}
+              onChange={(e) => setYearLabel(e.target.value)}
+              placeholder="2026-27"
+              required
+            />
+            <select
+              value={gradeLevel}
+              onChange={(e) => setGradeLevel(e.target.value)}
+            >
+              {[4, 5, 6, 7, 8, 9, 10].map((grade) => (
+                <option key={grade} value={grade}>
+                  Grade {grade}
+                </option>
+              ))}
             </select>
-            <input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} required />
-            <input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} required />
-            <button disabled={busy || !studentId} className="secondary-button" type="submit">Add academic year</button>
+            <input
+              type="date"
+              value={startDate}
+              onChange={(e) => setStartDate(e.target.value)}
+              required
+            />
+            <input
+              type="date"
+              value={endDate}
+              onChange={(e) => setEndDate(e.target.value)}
+              required
+            />
+            <button
+              disabled={busy || !studentId}
+              className="secondary-button"
+              type="submit"
+            >
+              Add academic year
+            </button>
           </form>
         </article>
 
         <article className="setup-card">
-          <div className="setup-step"><span>3</span><div><strong>Subjects</strong><p>{subjects.length} subjects</p></div></div>
+          <div className="setup-step">
+            <span>3</span>
+            <div>
+              <strong>Subjects</strong>
+              <p>{subjects.length} subjects</p>
+            </div>
+          </div>
           {subjects.length > 0 && (
-            <select value={selectedSubjectId} onChange={(e) => onSubjectChange(e.target.value)}>
-              {subjects.map((subject) => <option key={subject.id} value={subject.id}>{subject.name}</option>)}
+            <select
+              value={selectedSubjectId}
+              onChange={(e) => onSubjectChange(e.target.value)}
+            >
+              {subjects.map((subject) => (
+                <option key={subject.id} value={subject.id}>
+                  {subject.name}
+                </option>
+              ))}
             </select>
           )}
-          <CurriculumEditor resource="subjects" items={subjects} onReload={onSubjectsChanged} />
+          {!!suggestions.length && (
+            <button
+              type="button"
+              disabled={busy}
+              className="text-button"
+              onClick={addSuggestions}
+            >
+              Add missing {currentStudent?.board} subject suggestions
+            </button>
+          )}
+          <CurriculumEditor
+            resource="subjects"
+            items={subjects}
+            onReload={onSubjectsChanged}
+          />
           <form className="mini-form" onSubmit={addSubject}>
-            <input value={subjectName} onChange={(e) => setSubjectName(e.target.value)} placeholder="e.g. Science" required />
-            <button disabled={busy || !selectedAcademicYearId} className="secondary-button" type="submit">Add subject</button>
+            <input
+              value={subjectName}
+              onChange={(e) => setSubjectName(e.target.value)}
+              placeholder="e.g. Science"
+              required
+            />
+            <select
+              aria-label="New subject language level"
+              value={languageLevel}
+              onChange={(e) => setLanguageLevel(e.target.value)}
+            >
+              <option value="">Not a language / unspecified</option>
+              <option value="1">First language</option>
+              <option value="2">Second language</option>
+              <option value="3">Third language</option>
+            </select>
+            <button
+              disabled={busy || !selectedAcademicYearId}
+              className="secondary-button"
+              type="submit"
+            >
+              Add subject
+            </button>
           </form>
         </article>
 
         <article className="setup-card">
-          <div className="setup-step"><span>4</span><div><strong>Books</strong><p>{books.length} books</p></div></div>
+          <div className="setup-step">
+            <span>4</span>
+            <div>
+              <strong>Books</strong>
+              <p>{books.length} books</p>
+            </div>
+          </div>
           {books.length > 0 && (
-            <select value={selectedBookId} onChange={(e) => onBookChange(e.target.value)}>
-              {books.map((book) => <option key={book.id} value={book.id}>{book.title}</option>)}
+            <select
+              value={selectedBookId}
+              onChange={(e) => onBookChange(e.target.value)}
+            >
+              {books.map((book) => (
+                <option key={book.id} value={book.id}>
+                  {book.title}
+                </option>
+              ))}
             </select>
           )}
-          <CurriculumEditor resource="books" items={books} onReload={onBooksChanged} />
+          <CurriculumEditor
+            resource="books"
+            items={books}
+            onReload={onBooksChanged}
+          />
           <form className="mini-form" onSubmit={addBook}>
-            <input value={bookTitle} onChange={(e) => setBookTitle(e.target.value)} placeholder="Book title" required />
-            <input value={publisher} onChange={(e) => setPublisher(e.target.value)} placeholder="Publisher (optional)" />
-            <button disabled={busy || !selectedSubjectId} className="secondary-button" type="submit">Add book</button>
+            <input
+              value={bookTitle}
+              onChange={(e) => setBookTitle(e.target.value)}
+              placeholder="Book title"
+              required
+            />
+            <input
+              value={publisher}
+              onChange={(e) => setPublisher(e.target.value)}
+              placeholder="Publisher (optional)"
+            />
+            <button
+              disabled={busy || !selectedSubjectId}
+              className="secondary-button"
+              type="submit"
+            >
+              Add book
+            </button>
           </form>
         </article>
 
         <article className="setup-card full">
-          <div className="setup-step"><span>5</span><div><strong>Chapters</strong><p>{chapters.length} chapters</p></div></div>
+          <div className="setup-step">
+            <span>5</span>
+            <div>
+              <strong>Chapters</strong>
+              <p>{chapters.length} chapters</p>
+            </div>
+          </div>
           {chapters.length > 0 && (
             <div className="chapter-chips">
-              {chapters.map((chapter) => <span key={chapter.id}>{chapter.sequence}. {chapter.title}</span>)}
+              {chapters.map((chapter) => (
+                <span key={chapter.id}>
+                  {chapter.sequence}. {chapter.title}
+                </span>
+              ))}
             </div>
           )}
-          <CurriculumEditor resource="chapters" items={chapters} onReload={onChaptersChanged} />
+          <CurriculumEditor
+            resource="chapters"
+            items={chapters}
+            onReload={onChaptersChanged}
+          />
           <form className="mini-form chapter-form" onSubmit={addChapter}>
-            <input type="number" min="1" value={chapterSequence} onChange={(e) => setChapterSequence(e.target.value)} />
-            <input value={chapterTitle} onChange={(e) => setChapterTitle(e.target.value)} placeholder="Chapter title" required />
-            <button disabled={busy || !selectedBookId} className="secondary-button" type="submit">Add chapter</button>
+            <input
+              type="number"
+              min="1"
+              value={chapterSequence}
+              onChange={(e) => setChapterSequence(e.target.value)}
+            />
+            <input
+              value={chapterTitle}
+              onChange={(e) => setChapterTitle(e.target.value)}
+              placeholder="Chapter title"
+              required
+            />
+            <button
+              disabled={busy || !selectedBookId}
+              className="secondary-button"
+              type="submit"
+            >
+              Add chapter
+            </button>
           </form>
         </article>
       </div>

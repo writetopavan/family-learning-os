@@ -9,6 +9,9 @@ export type Student = {
   family_id: string;
   display_name: string;
   date_of_birth: string | null;
+  board?: string | null;
+  school_name?: string | null;
+  school_location?: string | null;
 };
 
 export type AcademicYear = {
@@ -22,6 +25,7 @@ export type AcademicYear = {
 };
 
 export type Subject = {
+  language_level?: number | null;
   id: string;
   family_id: string;
   academic_year_id: string;

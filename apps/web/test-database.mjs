@@ -14,6 +14,7 @@ for (const filename of [
   "202609270004_fix_rls_helper_execute.sql",
   "202609280001_learning_loop.sql",
   "20261003132330_learning_tree.sql",
+  "20261004032602_student_onboarding.sql",
 ]) {
   await db.exec(
     fs
@@ -136,6 +137,27 @@ for (const table of [
 ])
   if ((await db.query(`select count(*) n from ${table}`)).rows[0].n !== 0)
     throw Error("Cross-family read: " + table);
+await db.exec(`set request.jwt.claim.sub='11111111-1111-4111-8111-111111111111';`);
+const sibling = (await db.query(`select onboard_student($1::jsonb) child`, [JSON.stringify({family_id:f, display_name:"Sibling"})])).rows[0].child;
+const onboarded = (await db.query(`select onboard_student($1::jsonb) child`, [JSON.stringify({family_id:f, display_name:"New child", board:"CBSE", school_name:"School", academic_year:{family_id:f,label:"2026-27",start_date:"2026-04-01",end_date:"2027-03-31",grade_level:4},subjects:[{name:"English",language_level:1},{name:"Hindi",language_level:2},{name:"Telugu",language_level:3},{name:"Mathematics",language_level:null}]})])).rows[0].child;
+if (onboarded.board !== "CBSE") throw Error("board not saved");
+const languages = (await db.query(`select language_level from subjects join academic_years y on y.id=academic_year_id where y.student_id=$1 and language_level is not null`, [onboarded.id])).rows;
+if (languages.length !== 3) throw Error("languages not saved");
+const count = (await db.query(`select count(*) n from students`)).rows[0].n;
+try {
+  await db.query(`select onboard_student($1::jsonb)`, [JSON.stringify({family_id:f,display_name:"Bad profile",academic_year:{family_id:f,label:"2026",start_date:"2026-04-01",end_date:"2027-03-31",grade_level:4},subjects:[{name:"English",language_level:1},{name:"Hindi",language_level:1}]})]);
+  throw Error("duplicate level accepted");
+} catch(e) { if (e.message === "duplicate level accepted") throw e; }
+if ((await db.query(`select count(*) n from students`)).rows[0].n !== count) throw Error("partial student persisted");
+await db.exec(`set request.jwt.claim.sub='22222222-2222-4222-8222-222222222222';`);
+try { await db.query(`select delete_student_data($1,'Test learner')`,[student]); throw Error("cross-family delete accepted"); } catch(e) { if (e.message === "cross-family delete accepted") throw e; }
+await db.exec(`set request.jwt.claim.sub='11111111-1111-4111-8111-111111111111';`);
+try { await db.query(`select delete_student_data($1,'wrong name')`,[student]); throw Error("wrong confirmation accepted"); } catch(e) { if (e.message === "wrong confirmation accepted") throw e; }
+await db.query(`insert into ai_usage_events(family_id,student_id,feature,model,created_by) values($1,$2,'test','model',auth.uid())`,[f,student]);
+await db.query(`select delete_student_data($1,'Test learner')`,[student]);
+for (const table of ["learning_contents","assessment_chapters","assessment_answers","assessment_questions","assessment_attempts","assessments","chat_threads","books","chapters","ai_usage_events"])
+  if ((await db.query(`select count(*) n from ${table}`)).rows[0].n !== 0) throw Error("Deletion left data: "+table);
+if ((await db.query(`select id from students where id=$1`,[sibling.id])).rows.length !== 1) throw Error("sibling deleted");
 await db.close();
 console.log(
   "PASS: lesson context, atomic test/result writes, rollback on failure, cross-family RLS",
