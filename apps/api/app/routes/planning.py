@@ -292,6 +292,7 @@ async def interpret(payload, token, user, history=None):
             user,
             payload.material_ids,
             full_chapters=False,
+            required=bool(payload.material_ids),
         )
         vector, filters = grounding["vector_store_id"], grounding["filters"]
         if grounding["text"]:
@@ -326,6 +327,10 @@ async def interpret(payload, token, user, history=None):
         "If ambiguous (including multiple books with the same chapter title), ask for clarification and leave changes empty. "
         "Do not invent exam dates, subject names, chapters or book contents. Missing exam dates may be null. "
         "Every exam paper's subject must already exist in the selected academic year. Ask to add missing subjects in Setup. "
+        "For a multi-subject circular, map clear aliases (MATH to Mathematics, SOCIAL to Social Studies) to exact existing subject names in the selected year. "
+        "Import papers for recognized subjects even if optional subjects are missing; list omitted subjects and ask to add them in Setup. Do not guess which language 2ND LANG or 3RD LANG refers to. "
+        "Keep the main exam timetable separate from any mock test timetable. Use dates printed in the document, including past dates. "
+        "Extract all readable syllabus sections for each imported paper. Explicitly mention any image-only or unreadable syllabus sections; never invent them. "
         "Reuse the exact existing exam title when amending an exam, and reuse chapters from the subject. "
         "An exam with subject dates belongs in exams and is automatically linked to the calendar; do not duplicate it in events. "
         "Events have local dates/times, default Asia/Kolkata, weekdays Sunday=0. Daily routines can start today when user omits a start date; say so in answer. "

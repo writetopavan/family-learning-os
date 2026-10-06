@@ -112,7 +112,13 @@ export default function PlanningPanel({
     await run(async () => {
       const p = await postJson<{ plan: Plan; academic_year_id: string | null }>(
         "/v1/planning/interpret",
-        { ...context, message, material_ids: materialId ? [materialId] : [] },
+        {
+          ...context,
+          message: message.trim() || (view === "prep"
+            ? "Create exam preparation from the attached document. Import the exam timetable and all readable subject syllabuses."
+            : "Create schedules from the attached school circular. Import the exam timetable and holidays."),
+          material_ids: materialId ? [materialId] : [],
+        },
       );
       setPlan(p.plan);
       setPlanYear(p.academic_year_id);
@@ -251,6 +257,8 @@ export default function PlanningPanel({
                 e.target.value = "";
                 if (file)
                   void run(async () => {
+                    setMaterialId("");
+                    setPlan(null);
                     const m = await uploadStudentFile(file, {
                       familyId,
                       studentId,
@@ -283,7 +291,7 @@ export default function PlanningPanel({
               }
             />
           </label>
-          <button className="primary-button" disabled={busy || !message.trim()}>
+          <button className="primary-button" disabled={busy || (!message.trim() && !materialId)}>
             {busy ? "Working…" : "Extract plan"}
           </button>
           {materialId && <span>Document attached</span>}

@@ -40,7 +40,7 @@ async def generation_sources(
         # Retrieval/index availability must never prevent an otherwise valid AI request.
         # Keep validation/auth failures (400/403/404) explicit, but degrade document
         # retrieval failures to general-knowledge generation.
-        if exc.status_code not in {409, 422}:
+        if required or exc.status_code not in {409, 422}:
             raise
         grounding = {
             "text": "",
@@ -75,8 +75,12 @@ async def generation_sources(
         }
         grounding["material_ids"].extend(m["id"] for m in ready_managed)
 
-    # `required` is retained for backward-compatible callers only. Grounding is
-    # preferred, never required: callers can always continue with general knowledge.
+    # Imports need the actual attachment; ordinary tutoring can use general knowledge.
+    if required and not (grounding["text"] or filters):
+        raise HTTPException(
+            409,
+            "The attached document could not be read. Finish or rebuild its index in Library, then retry the import.",
+        )
     return {
         **grounding,
         "vector_store_id": vector,
