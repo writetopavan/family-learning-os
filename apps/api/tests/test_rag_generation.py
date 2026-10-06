@@ -199,7 +199,8 @@ def test_assessment_uses_shared_sources_and_saves_citations(monkeypatch):
     refs = [{"material_id": OTHER, "title": "Science", "page": 12}]
     sources = AsyncMock(
         return_value={
-            "text": "Plants contain chlorophyll",
+                "text": "Plants contain chlorophyll",
+                "grounded": True,
             "references": refs,
             "material_ids": [OTHER],
             "vector_store_id": None,
@@ -284,8 +285,33 @@ def test_empty_selected_pages_do_not_generate_content(monkeypatch):
 def test_assessments_can_generate_without_uploaded_sources(monkeypatch):
     monkeypatch.setattr(rag_service, "materials_for_context", AsyncMock(return_value=[]))
     result = asyncio.run(
-        rag_service.generation_sources(ID, {}, "Create test", "token", USER, required=True)
+        rag_service.generation_sources(ID, {}, "Create test", "token", USER, required=False)
     )
     assert result["grounded"] is False
     assert result["text"] == ""
     assert result["references"] == []
+
+
+@pytest.mark.parametrize("status", [409, 422])
+def test_document_import_preserves_source_failure(monkeypatch, status):
+    monkeypatch.setattr(
+        rag_service, "retrieve",
+        AsyncMock(side_effect=HTTPException(status, "Rebuild document index")),
+    )
+    with pytest.raises(HTTPException) as error:
+        asyncio.run(rag_service.generation_sources(
+            ID, {}, "Import syllabus", "token", USER, [OTHER], required=True
+        ))
+    assert error.value.status_code == status
+    assert error.value.detail == "Rebuild document index"
+
+
+def test_document_import_rejects_empty_sources(monkeypatch):
+    monkeypatch.setattr(rag_service, "retrieve", AsyncMock(return_value={
+        "text": "", "references": [], "material_ids": [], "managed": []
+    }))
+    with pytest.raises(HTTPException) as error:
+        asyncio.run(rag_service.generation_sources(
+            ID, {}, "Import syllabus", "token", USER, [OTHER], required=True
+        ))
+    assert error.value.status_code == 409

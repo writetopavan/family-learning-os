@@ -161,6 +161,7 @@ def test_interpret_does_not_save_and_complete_sources_are_scoped(monkeypatch):
     }
     assert ai.call_args.kwargs["filters"] is None
     assert ai.call_args.kwargs["vector_store_id"] is None
+    assert planning.generation_sources.call_args.kwargs["required"] is True
 
 
 def test_incomplete_extraction_never_returns_a_plan(monkeypatch):
@@ -222,3 +223,24 @@ def test_apply_uses_atomic_rpc_and_parent_authorization(monkeypatch):
     assert parent.await_count == 1
     assert rpc.call_args.args[0] == "save_student_plan"
     assert rpc.call_args.args[2]["target_student"] == ID
+
+
+def test_import_does_not_call_ai_when_attachment_read_fails(monkeypatch):
+    monkeypatch.setattr(planning, "context", AsyncMock(return_value={}))
+    monkeypatch.setattr(planning, "planning_data", AsyncMock(return_value={"years": []}))
+    monkeypatch.setattr(planning, "row", AsyncMock(return_value={
+        "id": OTHER, "student_id": ID, "family_id": ID, "title": "Term 1 syllabus"
+    }))
+    monkeypatch.setattr(planning, "generation_sources", AsyncMock(
+        side_effect=HTTPException(409, "Build the document index")
+    ))
+    ai = AsyncMock()
+    monkeypatch.setattr(planning.openai_service, "respond", ai)
+    request = planning.PlanningRequest(
+        family_id=ID, student_id=ID, message="Import exam syllabus", material_ids=[OTHER]
+    )
+    with pytest.raises(HTTPException) as error:
+        asyncio.run(planning.interpret(request, "test", USER))
+    assert error.value.status_code == 409
+    assert planning.generation_sources.call_args.kwargs["required"] is True
+    ai.assert_not_called()
